@@ -10,7 +10,7 @@ if (secretKeyRaw.length < 32) {
 }
 const secretKey = Buffer.from(secretKeyRaw);
 
-export function encryptData(data: any): string {
+const encryptData = (data: any): string => {
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
 
@@ -20,20 +20,47 @@ export function encryptData(data: any): string {
   encrypted += cipher.final("hex");
 
   return iv.toString("hex") + ":" + encrypted;
-}
+};
 
-export function decryptData(encrypted: string): any {
+const decryptData = (encrypted: string): any => {
   const [ivHex, encryptedData] = encrypted.split(":");
-  if (!ivHex || !encryptedData) throw new Error("Invalid encrypted data format");
+  if (!ivHex || !encryptedData)
+    throw new Error("Invalid encrypted data format");
 
   const decipher = crypto.createDecipheriv(
     algorithm,
     secretKey,
-    Buffer.from(ivHex, "hex")
+    Buffer.from(ivHex, "hex"),
   );
 
   let decrypted = decipher.update(encryptedData, "hex", "utf8");
   decrypted += decipher.final("utf8");
 
   return JSON.parse(decrypted);
-}
+};
+
+const generateSku = (
+  productName: string,
+  color?: string | null,
+  size?: string | null
+): string => {
+  const normalize = (value: string) =>
+    value
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 4);
+
+  const namePart = normalize(productName);
+  const colorPart = color ? normalize(color) : "GEN";
+  const sizePart = size ? normalize(size) : "NA";
+
+  const randomPart = Math.random()
+    .toString(36)
+    .substring(2, 8)
+    .toUpperCase();
+
+  return `${namePart}-${colorPart}-${sizePart}-${randomPart}`;
+};
+
+
+export { encryptData, decryptData, generateSku };

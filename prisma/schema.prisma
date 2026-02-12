@@ -12,7 +12,7 @@ model User {
   name      String
   email     String  @unique
   phone_number String? @unique
-  password  String
+  password  String?
   avatar_url        String? 
   avatar_public_id  String?
   role_id   Int     @default(2)

@@ -2,11 +2,12 @@ import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/apiError.js";
 import { decryptData } from "../utils/utils.js";
+import type { TokenPayload } from "../controller/users/types.js";
 
 const verifyAdminToken = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const token =
@@ -14,11 +15,14 @@ const verifyAdminToken = async (
       (req.header("Authorization")?.replace("Bearer ", "") as string);
     if (!token) throw new ApiError(401, "Access denied, token missing");
 
-    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as any;
+    const decoded: { data: string } = jwt.verify(
+      token,
+      process.env.ACCESS_TOKEN_SECRET!,
+    ) as any;
 
     if (!decoded) throw new ApiError(401, "Invalid or expired token");
 
-    const userDetails = decryptData(decoded?.data);
+    const userDetails: TokenPayload = decryptData(decoded?.data);
     if (userDetails.role_id !== 1) {
       throw new ApiError(403, "Access denied, admin only");
     }
@@ -31,10 +35,11 @@ const verifyAdminToken = async (
     next(new ApiError(401, "Invalid or expired token"));
   }
 };
+
 const verifyUserToken = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const token =
@@ -46,7 +51,7 @@ const verifyUserToken = async (
 
     if (!decoded) throw new ApiError(401, "Invalid or expired token");
 
-    const userDetails = decryptData(decoded?.data);
+    const userDetails: TokenPayload = decryptData(decoded?.data);
     req.user = userDetails;
     next();
   } catch (error) {

@@ -50,7 +50,7 @@ model Role {
 model Product {
   id          Int      @id @default(autoincrement())
   name        String
-  slug        String
+  slug        String   @unique
   description String?
   brand       String?
 
@@ -121,7 +121,7 @@ model Category {
 
 model Cart {
   id        Int     @id @default(autoincrement())
-  user_id   Int
+  user_id   Int     @unique
   user      User    @relation(fields: [user_id], references: [id])
   items     CartItem[]
   is_active Boolean @default(true)
@@ -239,3 +239,4 @@ model OrderItem {
   updated_at         DateTime        @updatedAt
   @@unique([order_id, product_variant_id])
 }
+

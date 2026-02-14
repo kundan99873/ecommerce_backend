@@ -355,9 +355,6 @@ const getProductsByCategory = asyncHandler(
   },
 );
 
-
-
-
 export {
   addProduct,
   getProductBySlug,

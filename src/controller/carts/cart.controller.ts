@@ -117,7 +117,7 @@ const updateCartItem = asyncHandler(
       throw new ApiError(400, "Quantity must be zero or greater");
     }
 
-    const cart = await prisma.cart.findUnique({
+    const cart = await prisma.cart.findFirst({
       where: { user_id: userId },
     });
 
@@ -219,6 +219,5 @@ const deleteProductFromCart = asyncHandler(
       .json(new ApiResponse("Product removed from cart successfully", null));
   },
 );
-
 
 export { addProductToCart, getCartProducts, updateCartItem, deleteProductFromCart };

@@ -51,7 +51,36 @@ const updateRole = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "Role not found");
   }
 
-  const update
+  const updateRole = await prisma.role.update({
+    where: { id },
+    data: { name },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Role updated successfully", updateRole));
 });
 
-export { addRole, getRoles };
+const deleteRole = asyncHandler(async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+
+  if (!id) {
+    return res.status(400).json({ message: "Role ID is required" });
+  }
+
+  const role = await prisma.role.findUnique({
+    where: { id },
+  });
+
+  if (!role) {
+    throw new ApiError(404, "Role not found");
+  }
+
+  await prisma.role.delete({
+    where: { id },
+  });
+
+  return res.status(200).json(new ApiResponse("Role deleted successfully"));
+});
+
+export { addRole, getRoles, updateRole, deleteRole };

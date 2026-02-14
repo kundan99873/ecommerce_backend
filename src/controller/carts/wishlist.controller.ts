@@ -76,5 +76,4 @@ const removeProductToWishlist = asyncHandler(
   },
 );
 
-
 export { addProductToWishlist, removeProductToWishlist }

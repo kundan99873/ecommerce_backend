@@ -1,8 +1,12 @@
+
 import cors, { type CorsOptions } from "cors";
 
+const env = process.env.NODE_ENV || "development";
 const whitelist: string[] = [
-  process.env.NODE_ENV === "development" ? "http://localhost:5173" : "",
+  env === "development" ? "http://localhost:5174" : "",
 ].filter(Boolean);
+
+console.log(whitelist)
 
 const corsOptions: CorsOptions = {
   origin: (

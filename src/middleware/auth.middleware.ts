@@ -61,5 +61,30 @@ const verifyUserToken = async (
     next(new ApiError(401, "Invalid or expired token"));
   }
 };
+const verifyOptionalToken = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const token =
+      req.cookies.accessToken ||
+      (req.header("Authorization")?.replace("Bearer ", "") as string);
+    if (!token) return next();
 
-export { verifyAdminToken, verifyUserToken };
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as any;
+
+    if (!decoded) return next();
+
+    const userDetails: TokenPayload = decryptData(decoded?.data);
+    req.user = userDetails;
+    next();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    next(new ApiError(401, "Invalid or expired token"));
+  }
+};
+
+export { verifyAdminToken, verifyUserToken, verifyOptionalToken };

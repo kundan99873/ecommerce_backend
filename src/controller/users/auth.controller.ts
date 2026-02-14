@@ -155,14 +155,14 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const googleLogin = asyncHandler(async (req: Request, res: Response) => {
-  const { tokenId } = req.body;
+  const { token } = req.body;
 
-  if (!tokenId) {
+  if (!token) {
     throw new ApiError(400, "Google token is required");
   }
 
   const ticket = await googleClient.verifyIdToken({
-    idToken: tokenId,
+    idToken: token,
     audience: process.env.GOOGLE_CLIENT_ID!,
   });
 

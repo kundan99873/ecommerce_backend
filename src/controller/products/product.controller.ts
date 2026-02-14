@@ -4,21 +4,30 @@ import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
 import { uploadMediaToCloudinary } from "../../helper/uploadFileToCloudinary.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
-import type { addProductInput, productFilter, SortOptions, VariantInput } from "./types.js";
+import type {
+  addProductInput,
+  productFilter,
+  SortOptions,
+  VariantInput,
+} from "./types.js";
 import { generateSku } from "../../utils/utils.js";
 import { productQuerySchema } from "../../validations/product.validation.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 
 const addProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
-    const { name, description, brand, category, variants } = req.body as addProductInput;
+    const { name, description, brand, category, variants } =
+      req.body as addProductInput;
 
     if (!name || !category || !variants) {
       throw new ApiError(400, "Name, categoryId, and variants are required");
     }
 
-    const categoryDetails = await prisma.category.findUnique({ where: { slug: category }, select: { id: true } });
-    if(!categoryDetails) {
+    const categoryDetails = await prisma.category.findUnique({
+      where: { slug: category },
+      select: { id: true },
+    });
+    if (!categoryDetails) {
       throw new ApiError(401, "Category not found");
     }
 
@@ -86,6 +95,8 @@ const addProduct = asyncHandler(
 
 const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsedQuery = productQuerySchema.parse(req.query);
+  const userId = req.user?.user_id;
+  console.log({ userId });
   const { sort, category, filter } = req.query as productFilter;
 
   let orderBy: any = { created_at: "desc" };
@@ -112,15 +123,15 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
 
   let categoryId: number | null = null;
 
-  if(category) {
+  if (category) {
     const categoryDetails = await prisma.category.findUnique({
       where: { slug: category },
       select: {
         id: true,
-      }
+      },
     });
 
-    if(!categoryDetails) throw new ApiError(404, "Category not found");
+    if (!categoryDetails) throw new ApiError(404, "Category not found");
 
     categoryId = categoryDetails.id;
   }
@@ -165,7 +176,7 @@ const updateProduct = asyncHandler(
     const { slug } = req.params;
     const { name, description, brand, categoryId, variants } = req.body;
 
-    if (!slug) throw new ApiError(400, "Product ID is required");
+    if (!slug) throw new ApiError(400, "Product slug is required");
 
     const existingProduct = await prisma.product.findUnique({
       where: { slug: slug as string },

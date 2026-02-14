@@ -60,6 +60,9 @@ const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
         }
       }
     },
+    orderBy: {
+
+    },
     skip: (page - 1) * limit,
     take: limit,
   });

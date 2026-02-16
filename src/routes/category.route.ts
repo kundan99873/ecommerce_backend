@@ -4,18 +4,20 @@ import {
   addCategory,
   deleteCategory,
   getCategories,
-  getCategoryById,
+  getCategoryBySlug,
   updateCategory,
 } from "../controller/categories/category.controller.js";
+import upload from "../middleware/image.middleware.js";
 
 const router = Router();
 
+router.route("/").get(getCategories);
 router.use(verifyAdminToken);
-router.route("/").get(getCategories).post(addCategory);
+router.route("/").post(upload.single("image"), addCategory);
 router
-  .route("/:id")
-  .get(getCategoryById)
-  .patch(updateCategory)
+  .route("slug")
+  .get(getCategoryBySlug)
+  .patch(upload.single("image"), updateCategory)
   .delete(deleteCategory);
 
 export default router;

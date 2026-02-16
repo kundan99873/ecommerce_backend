@@ -64,7 +64,6 @@ const getCategories = asyncHandler(async (req: Request, res: Response) => {
     }
   const categories = await prisma.category.findMany({
     select: {
-      id: true,
       name: true,
       description: true,
       slug: true,
@@ -79,15 +78,11 @@ const getCategories = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const updateCategory = asyncHandler(async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
-    throw new ApiError(400, "Invalid category ID");
-  }
-
+  const slug = req.params.slug as string;
   const { name, description } = req.body;
 
   const category = await prisma.category.findUnique({
-    where: { id },
+    where: { slug },
   });
 
   if (!category) {
@@ -122,14 +117,14 @@ const updateCategory = asyncHandler(async (req: Request, res: Response) => {
     imagePublicId = uploadResult.public_id;
   }
 
-  const slug = name.toLowerCase().trim().replace(/\s+/g, "-");
+  const newSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
 
   const updatedCategory = await prisma.category.update({
-    where: { id },
+    where: { id: category.id },
     data: {
       name,
       description,
-      slug,
+      slug: newSlug,
       image_url: imageUrl,
       image_public_id: imagePublicId,
     },
@@ -141,12 +136,10 @@ const updateCategory = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const deleteCategory = asyncHandler(async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
-    throw new ApiError(400, "Invalid category ID");
-  }
+  const slug = req.params.slug as string;
+
   const category = await prisma.category.findUnique({
-    where: { id },
+    where: { slug },
   });
 
   if (!category) {
@@ -155,22 +148,18 @@ const deleteCategory = asyncHandler(async (req: Request, res: Response) => {
 
   await deleteMediaFromCloudinary(category.image_public_id as string);
   await prisma.category.delete({
-    where: { id },
+    where: { slug },
   });
 
   return res.status(200).json(new ApiResponse("Category deleted successfully"));
 });
 
-const getCategoryById = asyncHandler(async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
-    throw new ApiError(400, "Invalid category ID");
-  }
+const getCategoryBySlug = asyncHandler(async (req: Request, res: Response) => {
+  const slug = req.params.slug as string;
 
   const category = await prisma.category.findUnique({
-    where: { id },
+    where: { slug },
     select: {
-      id: true,
       name: true,
       description: true,
       slug: true,
@@ -187,4 +176,4 @@ const getCategoryById = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse("Category retrieved successfully", category));
 });
 
-export { addCategory, getCategories, deleteCategory, updateCategory, getCategoryById };
+export { addCategory, getCategories, deleteCategory, updateCategory, getCategoryBySlug };

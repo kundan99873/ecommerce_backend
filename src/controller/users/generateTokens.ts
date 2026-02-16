@@ -3,6 +3,7 @@ import { encryptData } from "../../utils/utils.js";
 import type { GeneratedTokens, TokenPayload } from "./types.js";
 
 const generateTokens = (payload: TokenPayload): GeneratedTokens => {
+  console.log(process.env.ACCESS_TOKEN_SECRET, process.env.REFRESH_TOKEN_SECRET);
   const secretData = encryptData(payload);
 
   const accessToken = jwt.sign(

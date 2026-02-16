@@ -144,6 +144,8 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
       last_login_at: new Date(),
       failed_login_attempts: 0,
       refresh_token: refreshToken,
+      refresh_token_expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      locked_until: null,
     },
   });
 
@@ -157,9 +159,7 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 const googleLogin = asyncHandler(async (req: Request, res: Response) => {
   const { token } = req.body;
 
-  if (!token) {
-    throw new ApiError(400, "Google token is required");
-  }
+  if (!token) throw new ApiError(400, "Google token is required");
 
   const ticket = await googleClient.verifyIdToken({
     idToken: token,
@@ -168,9 +168,8 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
 
   const payload = ticket.getPayload();
 
-  if (!payload || !payload.email) {
+  if (!payload || !payload.email)
     throw new ApiError(400, "Invalid Google token");
-  }
 
   let user = await prisma.user.findUnique({
     where: { email: payload.email },
@@ -180,8 +179,6 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
-  console.log({ payload });
-
   if (!user) {
     user = await prisma.user.create({
       data: {
@@ -190,6 +187,7 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
         is_email_verified: true,
         provider: "google",
         provider_id: payload.sub,
+        avatar_url: payload.picture || null,
       },
       select: {
         id: true,
@@ -213,7 +211,13 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { refresh_token: refreshToken },
+    data: {
+      refresh_token: refreshToken,
+      last_login_at: new Date(),
+      failed_login_attempts: 0,
+      locked_until: null,
+      refresh_token_expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
   });
 
   return res
@@ -283,6 +287,30 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
     .cookie("refreshToken", newRefreshToken, refreshTokenCookieOptions)
     .status(200)
     .json(new ApiResponse("Access token refreshed"));
+});
+
+const isLogedInUser = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.user_id;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      name: true,
+      email: true,
+      avatar_url: true,
+      created_at: true,
+      role: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  return res.status(200).json(new ApiResponse("User is logged in", {...user, role: user.role?.name }));
 });
 
 const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
@@ -417,6 +445,7 @@ export {
   loginUser,
   googleLogin,
   logoutUser,
+  isLogedInUser,
   refreshToken,
   verifyEmail,
   changePassword,

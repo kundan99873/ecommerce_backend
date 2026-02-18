@@ -4,8 +4,8 @@ export interface VariantInput {
   original_price: number;
   discounted_price: number;
   stock: number;
-  sku: string;
-  images?: Express.Multer.File[];
+  // sku: string;
+  // images?: Express.Multer.File[];
 }
 
 export type SortOptions = "price_low" | "price_high" | "top_rated" | "newest";
@@ -21,6 +21,6 @@ export interface addProductInput {
   description?: string;
   brand: string;
   category: string;
-  variants: VariantInput[];
+  variants: string | VariantInput[];
 }
 

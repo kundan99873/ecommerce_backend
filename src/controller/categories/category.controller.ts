@@ -51,17 +51,17 @@ const addCategory = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getCategories = asyncHandler(async (req: Request, res: Response) => {
-    const { search } = req.query;
+  const { search } = req.query;
 
-    let whereClause = {};
-    if (search && typeof search === "string") {
-      whereClause = {
-        name: {
-            contains: search,
-            mode: "insensitive",
-        },
-      };
-    }
+  let whereClause = {};
+  if (search && typeof search === "string") {
+    whereClause = {
+      name: {
+        contains: search,
+        mode: "insensitive",
+      },
+    };
+  }
   const categories = await prisma.category.findMany({
     select: {
       name: true,
@@ -176,4 +176,10 @@ const getCategoryBySlug = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse("Category retrieved successfully", category));
 });
 
-export { addCategory, getCategories, deleteCategory, updateCategory, getCategoryBySlug };
+export {
+  addCategory,
+  getCategories,
+  deleteCategory,
+  updateCategory,
+  getCategoryBySlug,
+};

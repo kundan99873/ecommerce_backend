@@ -47,7 +47,7 @@ const verifyAdminToken = async (
   const accessToken = req.cookies.accessToken;
   const refreshToken = req.cookies.refreshToken;
 
-  if (!accessToken) {
+  if (!accessToken && !refreshToken) {
     return next(new ApiError(401, "Access denied, token missing"));
   }
 
@@ -64,6 +64,7 @@ const verifyAdminToken = async (
     req.user = userDetails;
     return next();
   } catch (error: any) {
+    console.log(error);
     if (error.name === "TokenExpiredError" && refreshToken) {
       try {
         const decodedRefresh = jwt.verify(

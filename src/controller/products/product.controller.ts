@@ -20,15 +20,7 @@ const addProduct = asyncHandler(
       req.body as addProductInput;
 
     if (!name || !category || !variants) {
-      throw new ApiError(400, "Name, categoryId, and variants are required");
-    }
-
-    const categoryDetails = await prisma.category.findUnique({
-      where: { slug: category },
-      select: { id: true },
-    });
-    if (!categoryDetails) {
-      throw new ApiError(401, "Category not found");
+      throw new ApiError(400, "Name, category, and variants are required");
     }
 
     let parsedVariants: VariantInput[] = [];
@@ -38,52 +30,96 @@ const addProduct = asyncHandler(
       parsedVariants = variants;
     }
 
+    if (!Array.isArray(parsedVariants) || parsedVariants.length === 0) {
+      throw new ApiError(400, "Variants must be a non-empty array");
+    }
+    const categoryDetails = await prisma.category.findUnique({
+      where: { slug: category },
+      select: { id: true },
+    });
+    if (!categoryDetails) {
+      throw new ApiError(401, "Category not found");
+    }
+
     const existingProduct = await prisma.product.findFirst({
-      where: { name },
+      where: {
+        name: {
+          equals: name,
+          mode: "insensitive",
+        },
+      },
     });
 
     if (existingProduct) {
       throw new ApiError(400, "Product with this name already exists");
     }
 
-    const product = await prisma.product.create({
-      data: {
-        name,
-        slug: name.toLowerCase().trim().replace(/\s+/g, "-"),
-        description: description ?? null,
-        brand: brand ?? null,
-        category_id: categoryDetails.id,
-      },
-    });
+    let baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
+    let slug = baseSlug;
+    let count = 1;
+    while (await prisma.product.findFirst({ where: { slug } })) {
+      slug = `${baseSlug}-${count++}`;
+    }
 
-    for (const variant of parsedVariants) {
-      let uploadedImages: { secure_url: string; public_id: string }[] = [];
-      if (variant.images && variant.images.length > 0) {
-        const uploadResults = await uploadMediaToCloudinary(variant.images);
-        uploadedImages = uploadResults.map((img) => ({
-          secure_url: img.secure_url,
-          public_id: img.public_id,
-        }));
+    const files = req.files as Express.Multer.File[];
+    const variantImageMap: Record<string, Express.Multer.File[]> = {};
+
+    if (files && files.length > 0) {
+      for (const file of files) {
+        if (!variantImageMap[file.fieldname]) {
+          variantImageMap[file.fieldname] = [];
+        }
+        variantImageMap[file.fieldname]!.push(file);
       }
+    }
 
-      const createdVariant = await prisma.productVariant.create({
+    const product = await prisma.$transaction(async (tx) => {
+      const newProduct = await tx.product.create({
         data: {
-          product_id: product.id,
-          color: variant.color ?? null,
-          size: variant.size ?? null,
-          original_price: variant.original_price,
-          discounted_price: variant.discounted_price,
-          stock: variant.stock,
-          sku: generateSku(name, variant.color, variant.size),
-          images: {
-            create: uploadedImages.map((img) => ({
-              image_url: img.secure_url,
-              image_public_id: img.public_id,
-            })),
-          },
+          name,
+          slug,
+          description,
+          brand,
+          category_id: categoryDetails.id,
         },
       });
-    }
+
+      for (let i = 0; i < parsedVariants.length; i++) {
+        const variant = parsedVariants[i];
+        const variantKey = `variants[${i}]`;
+        const imagesForVariant = variantImageMap[variantKey] || [];
+
+        let uploadedImages: { secure_url: string; public_id: string }[] = [];
+
+        if (imagesForVariant.length > 0) {
+          const uploadResults = await uploadMediaToCloudinary(imagesForVariant);
+          uploadedImages = uploadResults.map((img) => ({
+            secure_url: img.secure_url,
+            public_id: img.public_id,
+          }));
+        }
+
+        await tx.productVariant.create({
+          data: {
+            product_id: newProduct.id,
+            color: variant.color ?? null,
+            size: variant.size ?? null,
+            original_price: variant.original_price,
+            discounted_price: variant.discounted_price,
+            stock: variant.stock,
+            sku: generateSku(newProduct.name, variant.color, variant.size),
+            images: {
+              create: uploadedImages.map((img) => ({
+                image_url: img.secure_url,
+                image_public_id: img.public_id,
+              })),
+            },
+          },
+        });
+      }
+
+      return newProduct;
+    });
 
     return res
       .status(201)
@@ -174,7 +210,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
 const updateProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
     const { slug } = req.params;
-    const { name, description, brand, categoryId, variants } = req.body;
+    const { name, description, brand, category, variants } = req.body;
 
     if (!slug) throw new ApiError(400, "Product slug is required");
 
@@ -185,93 +221,180 @@ const updateProduct = asyncHandler(
 
     if (!existingProduct) throw new ApiError(404, "Product not found");
 
-    const updatedProduct = await prisma.product.update({
-      where: { id: existingProduct.id },
-      data: {
-        name: name ?? existingProduct.name,
-        slug: name
-          ? name.toLowerCase().trim().replace(/\s+/g, "-")
-          : existingProduct.slug,
-        description: description ?? existingProduct.description,
-        brand: brand ?? existingProduct.brand,
-        category_id: categoryId
-          ? Number(categoryId)
-          : existingProduct.category_id,
-      },
-    });
-
-    let parsedVariants: (VariantInput & { id?: number })[] = [];
+    // Parse variants safely
+    let parsedVariants: VariantInput[] = [];
     if (variants) {
-      parsedVariants =
-        typeof variants === "string" ? JSON.parse(variants) : variants;
+      try {
+        parsedVariants =
+          typeof variants === "string" ? JSON.parse(variants) : variants;
+      } catch {
+        throw new ApiError(400, "Invalid variants format");
+      }
     }
 
-    for (const variant of parsedVariants) {
-      let uploadedImages: { secure_url: string; public_id: string }[] = [];
+    // Validate category if changed
+    let categoryId = existingProduct.category_id;
+    if (category) {
+      const categoryDetails = await prisma.category.findUnique({
+        where: { slug: category },
+        select: { id: true },
+      });
 
-      if (variant.images && variant.images.length > 0) {
-        const uploadResults = await uploadMediaToCloudinary(variant.images);
-        uploadedImages = uploadResults.map((img) => ({
-          secure_url: img.secure_url,
-          public_id: img.public_id,
-        }));
-      }
+      if (!categoryDetails) throw new ApiError(404, "Category not found");
 
-      if (variant.id) {
-        const variantData: Prisma.ProductVariantUpdateInput = {
-          original_price: variant.original_price,
-          discounted_price: variant.discounted_price,
-          stock: variant.stock,
-          sku: generateSku(updatedProduct.name, variant.color, variant.size),
-        };
+      categoryId = categoryDetails.id;
+    }
 
-        if (variant.color !== undefined) {
-          variantData.color = variant.color;
-        }
+    // Case-insensitive duplicate name check
+    if (name && name !== existingProduct.name) {
+      const duplicate = await prisma.product.findFirst({
+        where: {
+          name: { equals: name, mode: "insensitive" },
+          NOT: { id: existingProduct.id },
+        },
+      });
 
-        if (variant.size !== undefined) {
-          variantData.size = variant.size;
-        }
+      if (duplicate)
+        throw new ApiError(400, "Another product with this name exists");
+    }
 
-        if (uploadedImages.length) {
-          variantData.images = {
-            create: uploadedImages.map((img) => ({
-              image_url: img.secure_url,
-              image_public_id: img.public_id,
-            })),
-          };
-        }
+    // Generate unique slug if name changed
+    let updatedSlug = existingProduct.slug;
 
-        await prisma.productVariant.update({
-          where: { id: variant.id },
-          data: variantData,
-        });
-      } else {
-        await prisma.productVariant.create({
-          data: {
-            product_id: updatedProduct.id,
-            color: variant.color ?? null,
-            size: variant.size ?? null,
-            original_price: variant.original_price,
-            discounted_price: variant.discounted_price,
-            stock: variant.stock,
-            sku: generateSku(updatedProduct.name, variant.color, variant.size),
-            images: {
-              create: uploadedImages.map((img) => ({
-                image_url: img.secure_url,
-                image_public_id: img.public_id,
-              })),
-            },
+    if (name && name !== existingProduct.name) {
+      let baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
+      let tempSlug = baseSlug;
+      let counter = 1;
+
+      while (
+        await prisma.product.findFirst({
+          where: {
+            slug: tempSlug,
+            NOT: { id: existingProduct.id },
           },
-        });
+        })
+      ) {
+        tempSlug = `${baseSlug}-${counter++}`;
+      }
+
+      updatedSlug = tempSlug;
+    }
+
+    // Group uploaded files by fieldname
+    const files = req.files as Express.Multer.File[];
+    const groupedFiles: Record<string, Express.Multer.File[]> = {};
+
+    if (files) {
+      for (const file of files) {
+        if (!groupedFiles[file.fieldname]) {
+          groupedFiles[file.fieldname] = [];
+        }
+        groupedFiles[file.fieldname]!.push(file);
       }
     }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1️⃣ Update product
+      const updatedProduct = await tx.product.update({
+        where: { id: existingProduct.id },
+        data: {
+          name: name ?? existingProduct.name,
+          slug: updatedSlug,
+          description: description ?? existingProduct.description,
+          brand: brand ?? existingProduct.brand,
+          category_id: categoryId,
+        },
+      });
+
+      const existingVariantIds = existingProduct.variants.map((v) => v.id);
+      const incomingVariantIds = parsedVariants
+        .filter((v) => v.id)
+        .map((v) => v.id as number);
+
+      // 2️⃣ Delete removed variants
+      const variantsToDelete = existingVariantIds.filter(
+        (id) => !incomingVariantIds.includes(id)
+      );
+
+      if (variantsToDelete.length) {
+        await tx.productVariant.deleteMany({
+          where: { id: { in: variantsToDelete } },
+        });
+      }
+
+      // 3️⃣ Create / Update variants
+      for (let i = 0; i < parsedVariants.length; i++) {
+        const variant = parsedVariants[i];
+        const variantImages = groupedFiles[`images_${i}`] || [];
+
+        let uploadedImages: {
+          secure_url: string;
+          public_id: string;
+        }[] = [];
+
+        if (variantImages.length > 0) {
+          const uploadResults = await uploadMediaToCloudinary(variantImages);
+          uploadedImages = uploadResults.map((img: any) => ({
+            secure_url: img.secure_url,
+            public_id: img.public_id,
+          }));
+        }
+
+        if (variant.id) {
+          // Ensure variant belongs to this product
+          const belongsToProduct = existingVariantIds.includes(variant.id);
+          if (!belongsToProduct)
+            throw new ApiError(400, "Invalid variant ID");
+
+          await tx.productVariant.update({
+            where: { id: variant.id },
+            data: {
+              color: variant.color ?? null,
+              size: variant.size ?? null,
+              original_price: Number(variant.original_price),
+              discounted_price: Number(variant.discounted_price),
+              stock: Number(variant.stock),
+              sku: generateSku(updatedProduct.name, variant.color, variant.size),
+              images: uploadedImages.length
+                ? {
+                    create: uploadedImages.map((img) => ({
+                      image_url: img.secure_url,
+                      image_public_id: img.public_id,
+                    })),
+                  }
+                : undefined,
+            },
+          });
+        } else {
+          await tx.productVariant.create({
+            data: {
+              product_id: updatedProduct.id,
+              color: variant.color ?? null,
+              size: variant.size ?? null,
+              original_price: Number(variant.original_price),
+              discounted_price: Number(variant.discounted_price),
+              stock: Number(variant.stock),
+              sku: generateSku(updatedProduct.name, variant.color, variant.size),
+              images: {
+                create: uploadedImages.map((img) => ({
+                  image_url: img.secure_url,
+                  image_public_id: img.public_id,
+                })),
+              },
+            },
+          });
+        }
+      }
+
+      return updatedProduct;
+    });
 
     return res
       .status(200)
-      .json(new ApiResponse("Product updated successfully", updatedProduct));
-  },
+      .json(new ApiResponse("Product updated successfully", result));
+  }
 );
+
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const { slug: rawSlug, active = false } = req.query;
@@ -283,7 +406,7 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const product = await prisma.product.findUnique({
-    where: { slug },
+    where: { slug: slug as string },
     include: {
       category: {
         select: {

@@ -63,6 +63,11 @@ model Product {
   is_active   Boolean  @default(true)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
+
+  @@index([name])
+  @@index([created_at])
+  @@index([is_active])
+  @@index([category_id])
 }
 
 model ProductVariant {
@@ -84,6 +89,9 @@ model ProductVariant {
   updated_at DateTime @updatedAt
 
   @@unique([product_id, color, size])
+
+  @@index([product_id])
+
 }
 
 model ProductImage {
@@ -95,6 +103,8 @@ model ProductImage {
   is_primary  Boolean @default(false)
   created_at DateTime        @default(now())
   updated_at DateTime        @updatedAt
+
+    @@index([variant_id])
 }
 
 model ProductPincode {
@@ -104,6 +114,8 @@ model ProductPincode {
   pincode    String  
   created_at DateTime @default(now())
   @@unique([product_id, pincode]) 
+
+  @@index([product_id])
 }
 
 model Category {

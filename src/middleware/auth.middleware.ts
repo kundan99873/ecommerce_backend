@@ -39,16 +39,83 @@ import { accessTokenCookieOptions } from "../config/cookie.config.js";
 //   }
 // };
 
+// const verifyAdminToken = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction,
+// ) => {
+//   const accessToken = req.cookies.accessToken;
+//   const refreshToken = req.cookies.refreshToken;
+
+//   if (!accessToken && !refreshToken) {
+//     return next(new ApiError(401, "Access denied, token missing"));
+//   }
+
+//   try {
+//     if(!accessToken) throw new ApiError(401, "Access denied, token missing");
+//     const decoded = jwt.verify(
+//       accessToken,
+//       process.env.ACCESS_TOKEN_SECRET!,
+//     ) as any;
+
+//     const userDetails: TokenPayload = decryptData(decoded.data);
+//     if (userDetails.role_id !== 1) {
+//       throw new ApiError(403, "Access denied, admin only");
+//     }
+//     req.user = userDetails;
+//     return next();
+//   } catch (error: any) {
+//     console.log(error);
+//     if (error.name === "TokenExpiredError" && refreshToken) {
+//       try {
+//         const decodedRefresh = jwt.verify(
+//           refreshToken,
+//           process.env.REFRESH_TOKEN_SECRET!,
+//         ) as any;
+
+//         const refreshPayload: TokenPayload = decryptData(decodedRefresh.data);
+
+//         const user = await prisma.user.findFirst({
+//           where: {
+//             id: refreshPayload.user_id,
+//             refresh_token: refreshToken,
+//           },
+//         });
+
+//         if (!user) return next(new ApiError(401, "Invalid refresh token"));
+
+//         const { accessToken: newAccessToken } = generateTokens({
+//           user_id: user.id,
+//           role_id: user.role_id,
+//         });
+
+//         res.cookie("accessToken", newAccessToken, accessTokenCookieOptions);
+
+//         req.user = {
+//           user_id: user.id,
+//           role_id: user.role_id,
+//         };
+
+//         return next();
+//       } catch {
+//         return next(new ApiError(401, "Invalid or expired refresh token"));
+//       }
+//     }
+
+//     return next(new ApiError(401, "Invalid or expired token"));
+//   }
+// };
+
 const verifyAdminToken = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
-  const accessToken = req.cookies.accessToken;
-  const refreshToken = req.cookies.refreshToken;
+  const accessToken = req.cookies?.accessToken;
+  const refreshToken = req.cookies?.refreshToken;
 
-  if (!accessToken && !refreshToken) {
-    return next(new ApiError(401, "Access denied, token missing"));
+  if (!accessToken) {
+    return tryRefresh();
   }
 
   try {
@@ -57,51 +124,68 @@ const verifyAdminToken = async (
       process.env.ACCESS_TOKEN_SECRET!,
     ) as any;
 
-    const userDetails: TokenPayload = decryptData(decoded.data);
-    if (userDetails.role_id !== 1) {
-      throw new ApiError(403, "Access denied, admin only");
+    const payload: TokenPayload = decryptData(decoded.data);
+
+    if (payload.role_id !== 1) {
+      return next(new ApiError(403, "Admin only"));
     }
-    req.user = userDetails;
+
+    req.user = payload;
     return next();
   } catch (error: any) {
-    console.log(error);
-    if (error.name === "TokenExpiredError" && refreshToken) {
-      try {
-        const decodedRefresh = jwt.verify(
-          refreshToken,
-          process.env.REFRESH_TOKEN_SECRET!,
-        ) as any;
-
-        const refreshPayload: TokenPayload = decryptData(decodedRefresh.data);
-
-        const user = await prisma.user.findFirst({
-          where: {
-            id: refreshPayload.user_id,
-            refresh_token: refreshToken,
-          },
-        });
-
-        if (!user) return next(new ApiError(401, "Invalid refresh token"));
-
-        const { accessToken: newAccessToken } = generateTokens({
-          user_id: user.id,
-          role_id: user.role_id,
-        });
-
-        res.cookie("accessToken", newAccessToken, accessTokenCookieOptions);
-
-        req.user = {
-          user_id: user.id,
-          role_id: user.role_id,
-        };
-
-        return next();
-      } catch {
-        return next(new ApiError(401, "Invalid or expired refresh token"));
-      }
+    // 🔥 Improved expiration detection
+    if (
+      error.name === "TokenExpiredError" ||
+      error.message?.includes("jwt expired")
+    ) {
+      return tryRefresh();
     }
 
-    return next(new ApiError(401, "Invalid or expired token"));
+    return next(new ApiError(401, "Invalid token"));
+  }
+
+  async function tryRefresh() {
+    if (!refreshToken) {
+      return next(new ApiError(401, "Authentication required"));
+    }
+
+    try {
+      const decodedRefresh = jwt.verify(
+        refreshToken,
+        process.env.REFRESH_TOKEN_SECRET!,
+      ) as any;
+
+      const payload: TokenPayload = decryptData(decodedRefresh.data);
+
+      const user = await prisma.user.findUnique({
+        where: { id: payload.user_id },
+        select: { id: true, role_id: true, refresh_token: true },
+      });
+
+      if (!user || user.refresh_token !== refreshToken) {
+        return next(new ApiError(401, "Invalid refresh token"));
+      }
+
+      if (user.role_id !== 1) {
+        return next(new ApiError(403, "Admin only"));
+      }
+
+      const { accessToken: newAccessToken } = generateTokens({
+        user_id: user.id,
+        role_id: user.role_id,
+      });
+
+      res.cookie("accessToken", newAccessToken, accessTokenCookieOptions);
+
+      req.user = {
+        user_id: user.id,
+        role_id: user.role_id,
+      };
+
+      return next();
+    } catch (err) {
+      return next(new ApiError(401, "Session expired"));
+    }
   }
 };
 

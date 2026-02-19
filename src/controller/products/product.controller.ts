@@ -23,48 +23,44 @@ const addProduct = asyncHandler(
       throw new ApiError(400, "Name, category, and variants are required");
     }
 
-    let parsedVariants: VariantInput[] = [];
-    if (typeof variants === "string") {
-      parsedVariants = JSON.parse(variants);
-    } else {
-      parsedVariants = variants;
-    }
+    // ---------- Parse Variants ----------
+    const parsedVariants: VariantInput[] =
+      typeof variants === "string" ? JSON.parse(variants) : variants;
 
     if (!Array.isArray(parsedVariants) || parsedVariants.length === 0) {
-      throw new ApiError(400, "Variants must be a non-empty array");
+      throw new ApiError(400, "Variants must be non-empty array");
     }
+
+    // ---------- Validate Category ----------
     const categoryDetails = await prisma.category.findUnique({
       where: { slug: category },
       select: { id: true },
     });
+
     if (!categoryDetails) {
-      throw new ApiError(401, "Category not found");
+      throw new ApiError(404, "Category not found");
     }
 
+    // ---------- Check duplicate product ----------
     const existingProduct = await prisma.product.findFirst({
       where: {
-        name: {
-          equals: name,
-          mode: "insensitive",
-        },
+        name: { equals: name, mode: "insensitive" },
       },
     });
 
     if (existingProduct) {
-      throw new ApiError(400, "Product with this name already exists");
+      throw new ApiError(400, "Product already exists");
     }
 
-    let baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
-    let slug = baseSlug;
-    let count = 1;
-    while (await prisma.product.findFirst({ where: { slug } })) {
-      slug = `${baseSlug}-${count++}`;
-    }
+    // ---------- Generate Slug (Simple version) ----------
+    const baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
+    const slug = `${baseSlug}-${Date.now()}`; // prevents race condition
 
+    // ---------- Group Files ----------
     const files = req.files as Express.Multer.File[];
     const variantImageMap: Record<string, Express.Multer.File[]> = {};
 
-    if (files && files.length > 0) {
+    if (files?.length) {
       for (const file of files) {
         if (!variantImageMap[file.fieldname]) {
           variantImageMap[file.fieldname] = [];
@@ -73,12 +69,41 @@ const addProduct = asyncHandler(
       }
     }
 
+    // =========================================================
+    // 🔥 STEP 1: Upload ALL Images BEFORE Transaction
+    // =========================================================
+
+    const uploadedVariantImages: Record<
+      string,
+      { image_url: string; image_public_id: string }[]
+    > = {};
+
+    for (let i = 0; i < parsedVariants.length; i++) {
+      const key = `variants[${i}]`;
+      const images = variantImageMap[key] || [];
+
+      if (images.length > 0) {
+        const uploadResults = await uploadMediaToCloudinary(images);
+
+        uploadedVariantImages[key] = uploadResults.map((img: any) => ({
+          image_url: img.secure_url,
+          image_public_id: img.public_id,
+        }));
+      } else {
+        uploadedVariantImages[key] = [];
+      }
+    }
+
+    // =========================================================
+    // 🔥 STEP 2: Transaction (ONLY DB OPERATIONS)
+    // =========================================================
+
     const product = await prisma.$transaction(async (tx) => {
       const newProduct = await tx.product.create({
         data: {
           name,
           slug,
-          description,
+          description: description ?? null,
           brand,
           category_id: categoryDetails.id,
         },
@@ -86,48 +111,49 @@ const addProduct = asyncHandler(
 
       for (let i = 0; i < parsedVariants.length; i++) {
         const variant = parsedVariants[i];
-        const variantKey = `variants[${i}]`;
-        const imagesForVariant = variantImageMap[variantKey] || [];
+        if (!variant) continue;
 
-        let uploadedImages: { secure_url: string; public_id: string }[] = [];
-
-        if (imagesForVariant.length > 0) {
-          const uploadResults = await uploadMediaToCloudinary(imagesForVariant);
-          uploadedImages = uploadResults.map((img) => ({
-            secure_url: img.secure_url,
-            public_id: img.public_id,
-          }));
-        }
-
-        await tx.productVariant.create({
+        const createdVariant = await tx.productVariant.create({
           data: {
             product_id: newProduct.id,
             color: variant.color ?? null,
             size: variant.size ?? null,
-            original_price: variant.original_price,
-            discounted_price: variant.discounted_price,
-            stock: variant.stock,
-            sku: generateSku(newProduct.name, variant.color, variant.size),
-            images: {
-              create: uploadedImages.map((img) => ({
-                image_url: img.secure_url,
-                image_public_id: img.public_id,
-              })),
-            },
+            original_price: Number(variant.original_price),
+            discounted_price: Number(variant.discounted_price),
+            stock: Number(variant.stock),
+            sku: generateSku(
+              newProduct.name,
+              variant.color,
+              variant.size
+            ),
           },
         });
+
+        const images = uploadedVariantImages[`variants[${i}]`] || [];
+
+        if (images.length > 0) {
+          await tx.productImage.createMany({
+            data: images.map((img) => ({
+              variant_id: createdVariant.id,
+              image_url: img.image_url,
+              image_public_id: img.image_public_id,
+            })),
+          });
+        }
       }
 
       return newProduct;
     });
 
-    return res
-      .status(201)
-      .json(
-        new ApiResponse("Product with variants created successfully", product),
-      );
-  },
+    return res.status(201).json(
+      new ApiResponse(
+        "Product with variants created successfully",
+        product
+      )
+    );
+  }
 );
+
 
 const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsedQuery = productQuerySchema.parse(req.query);
@@ -184,7 +210,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
     ...(categoryId ? { category_id: categoryId } : {}),
   };
 
-  const [totalProducts, products] = await prisma.$transaction([
+  const [totalProducts, products] = await Promise.all([
     prisma.product.count({
       where: whereCondition,
     }),
@@ -193,6 +219,32 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       take: limit,
       skip: (page - 1) * limit,
       orderBy,
+      select: {
+        name: true,
+        slug: true,
+        description: true,
+        brand: true,
+        category: {
+          select: {
+            name: true,
+          },
+        },
+        variants: {
+          select: {
+            color: true,
+            size: true,
+            original_price: true,
+            discounted_price: true,
+            stock: true,
+            sku: true,
+            images: {
+              select: {
+                image_url: true,
+              },
+            },
+          },
+        },
+      },
     }),
   ]);
 
@@ -232,6 +284,20 @@ const updateProduct = asyncHandler(
       }
     }
 
+    for (const v of parsedVariants) {
+      if (
+        isNaN(Number(v.original_price)) ||
+        isNaN(Number(v.discounted_price)) ||
+        isNaN(Number(v.stock))
+      ) {
+        throw new ApiError(400, "Invalid numeric values in variants");
+      }
+
+      if (Number(v.stock) < 0) {
+        throw new ApiError(400, "Stock cannot be negative");
+      }
+    }
+
     // Validate category if changed
     let categoryId = existingProduct.category_id;
     if (category) {
@@ -245,18 +311,18 @@ const updateProduct = asyncHandler(
       categoryId = categoryDetails.id;
     }
 
-    // Case-insensitive duplicate name check
-    if (name && name !== existingProduct.name) {
-      const duplicate = await prisma.product.findFirst({
-        where: {
-          name: { equals: name, mode: "insensitive" },
-          NOT: { id: existingProduct.id },
-        },
-      });
+    // // Case-insensitive duplicate name check
+    // if (name && name !== existingProduct.name) {
+    //   const duplicate = await prisma.product.findFirst({
+    //     where: {
+    //       name: { equals: name, mode: "insensitive" },
+    //       NOT: { id: existingProduct.id },
+    //     },
+    //   });
 
-      if (duplicate)
-        throw new ApiError(400, "Another product with this name exists");
-    }
+    //   if (duplicate)
+    //     throw new ApiError(400, "Another product with this name exists");
+    // }
 
     // Generate unique slug if name changed
     let updatedSlug = existingProduct.slug;
@@ -313,7 +379,7 @@ const updateProduct = asyncHandler(
 
       // 2️⃣ Delete removed variants
       const variantsToDelete = existingVariantIds.filter(
-        (id) => !incomingVariantIds.includes(id)
+        (id) => !incomingVariantIds.includes(id),
       );
 
       if (variantsToDelete.length) {
@@ -325,6 +391,8 @@ const updateProduct = asyncHandler(
       // 3️⃣ Create / Update variants
       for (let i = 0; i < parsedVariants.length; i++) {
         const variant = parsedVariants[i];
+        if (!variant) continue;
+
         const variantImages = groupedFiles[`images_${i}`] || [];
 
         let uploadedImages: {
@@ -343,8 +411,7 @@ const updateProduct = asyncHandler(
         if (variant.id) {
           // Ensure variant belongs to this product
           const belongsToProduct = existingVariantIds.includes(variant.id);
-          if (!belongsToProduct)
-            throw new ApiError(400, "Invalid variant ID");
+          if (!belongsToProduct) throw new ApiError(400, "Invalid variant ID");
 
           await tx.productVariant.update({
             where: { id: variant.id },
@@ -354,15 +421,19 @@ const updateProduct = asyncHandler(
               original_price: Number(variant.original_price),
               discounted_price: Number(variant.discounted_price),
               stock: Number(variant.stock),
-              sku: generateSku(updatedProduct.name, variant.color, variant.size),
-              images: uploadedImages.length
-                ? {
-                    create: uploadedImages.map((img) => ({
-                      image_url: img.secure_url,
-                      image_public_id: img.public_id,
-                    })),
-                  }
-                : undefined,
+              sku: generateSku(
+                updatedProduct.name,
+                variant.color,
+                variant.size,
+              ),
+              ...(uploadedImages.length > 0 && {
+                images: {
+                  create: uploadedImages.map((img) => ({
+                    image_url: img.secure_url,
+                    image_public_id: img.public_id,
+                  })),
+                },
+              }),
             },
           });
         } else {
@@ -374,7 +445,11 @@ const updateProduct = asyncHandler(
               original_price: Number(variant.original_price),
               discounted_price: Number(variant.discounted_price),
               stock: Number(variant.stock),
-              sku: generateSku(updatedProduct.name, variant.color, variant.size),
+              sku: generateSku(
+                updatedProduct.name,
+                variant.color,
+                variant.size,
+              ),
               images: {
                 create: uploadedImages.map((img) => ({
                   image_url: img.secure_url,
@@ -392,9 +467,8 @@ const updateProduct = asyncHandler(
     return res
       .status(200)
       .json(new ApiResponse("Product updated successfully", result));
-  }
+  },
 );
-
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const { slug: rawSlug, active = false } = req.query;

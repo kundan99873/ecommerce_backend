@@ -18,5 +18,6 @@ router
 
 router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);
+router.route("/:slug").post(verifyAdminToken, updateProduct);
 
 export default router;

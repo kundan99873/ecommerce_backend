@@ -13,13 +13,14 @@ CREATE TABLE "User" (
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone_number" TEXT,
-    "password" TEXT NOT NULL,
+    "password" TEXT,
     "avatar_url" TEXT,
     "avatar_public_id" TEXT,
-    "role_id" INTEGER NOT NULL,
+    "role_id" INTEGER NOT NULL DEFAULT 2,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "is_email_verified" BOOLEAN NOT NULL DEFAULT false,
     "email_verification_token" TEXT,
+    "email_verification_expiry" TIMESTAMP(3),
     "email_verified_at" TIMESTAMP(3),
     "forgot_password_token" TEXT,
     "forgot_password_expires" TIMESTAMP(3),
@@ -238,10 +239,34 @@ CREATE UNIQUE INDEX "User_phone_number_key" ON "User"("phone_number");
 CREATE UNIQUE INDEX "Role_name_key" ON "Role"("name");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Product_slug_key" ON "Product"("slug");
+
+-- CreateIndex
+CREATE INDEX "Product_name_idx" ON "Product"("name");
+
+-- CreateIndex
+CREATE INDEX "Product_created_at_idx" ON "Product"("created_at");
+
+-- CreateIndex
+CREATE INDEX "Product_is_active_idx" ON "Product"("is_active");
+
+-- CreateIndex
+CREATE INDEX "Product_category_id_idx" ON "Product"("category_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ProductVariant_sku_key" ON "ProductVariant"("sku");
 
 -- CreateIndex
+CREATE INDEX "ProductVariant_product_id_idx" ON "ProductVariant"("product_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ProductVariant_product_id_color_size_key" ON "ProductVariant"("product_id", "color", "size");
+
+-- CreateIndex
+CREATE INDEX "ProductImage_variant_id_idx" ON "ProductImage"("variant_id");
+
+-- CreateIndex
+CREATE INDEX "ProductPincode_product_id_idx" ON "ProductPincode"("product_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ProductPincode_product_id_pincode_key" ON "ProductPincode"("product_id", "pincode");
@@ -251,6 +276,9 @@ CREATE UNIQUE INDEX "Category_name_key" ON "Category"("name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Category_slug_key" ON "Category"("slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Cart_user_id_key" ON "Cart"("user_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "CartItem_cart_id_product_variant_id_key" ON "CartItem"("cart_id", "product_variant_id");

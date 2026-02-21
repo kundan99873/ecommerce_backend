@@ -5,6 +5,7 @@ export interface VariantInput {
   discounted_price: number;
   stock: number;
   id?: number;
+  removed_image_ids?: number[]; 
   // sku: string;
   // images?: Express.Multer.File[];
 }

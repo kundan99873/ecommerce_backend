@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
-import { uploadMediaToCloudinary } from "../../helper/uploadFileToCloudinary.js";
+import {
+  deleteMediaFromCloudinary,
+  uploadMediaToCloudinary,
+} from "../../helper/uploadFileToCloudinary.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import type {
   addProductInput,
@@ -51,7 +54,7 @@ const addProduct = asyncHandler(
     }
 
     const baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
-    const slug = `${baseSlug}-${Date.now()}`; 
+    const slug = `${baseSlug}-${Date.now()}`;
 
     const files = req.files as Express.Multer.File[];
     const variantImageMap: Record<string, Express.Multer.File[]> = {};
@@ -75,7 +78,7 @@ const addProduct = asyncHandler(
       const images = variantImageMap[key] || [];
 
       if (images.length > 0) {
-        const uploadResults = await uploadMediaToCloudinary(images);
+        const uploadResults = await uploadMediaToCloudinary(images, "products");
 
         uploadedVariantImages[key] = uploadResults.map((img: any) => ({
           image_url: img.secure_url,
@@ -109,11 +112,7 @@ const addProduct = asyncHandler(
             original_price: Number(variant.original_price),
             discounted_price: Number(variant.discounted_price),
             stock: Number(variant.stock),
-            sku: generateSku(
-              newProduct.name,
-              variant.color,
-              variant.size
-            ),
+            sku: generateSku(newProduct.name, variant.color, variant.size),
           },
         });
 
@@ -121,10 +120,11 @@ const addProduct = asyncHandler(
 
         if (images.length > 0) {
           await tx.productImage.createMany({
-            data: images.map((img) => ({
+            data: images.map((img, idx) => ({
               variant_id: createdVariant.id,
               image_url: img.image_url,
               image_public_id: img.image_public_id,
+              is_primary: variant.primary_image_index === idx,
             })),
           });
         }
@@ -133,15 +133,13 @@ const addProduct = asyncHandler(
       return newProduct;
     });
 
-    return res.status(201).json(
-      new ApiResponse(
-        "Product with variants created successfully",
-        product
-      )
-    );
-  }
+    return res
+      .status(201)
+      .json(
+        new ApiResponse("Product with variants created successfully", product),
+      );
+  },
 );
-
 
 const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsedQuery = productQuerySchema.parse(req.query);
@@ -251,217 +249,6 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
     );
 });
 
-// const updateProduct = asyncHandler(
-//   async (req: Request, res: Response): Promise<Response> => {
-//     const { slug } = req.params;
-//     const { name, description, brand, category, variants } = req.body;
-
-//     if (!slug) throw new ApiError(400, "Product slug is required");
-
-//     const existingProduct = await prisma.product.findUnique({
-//       where: { slug: slug as string },
-//       include: { variants: true },
-//     });
-
-//     if (!existingProduct) throw new ApiError(404, "Product not found");
-
-//     // Parse variants safely
-//     let parsedVariants: VariantInput[] = [];
-//     if (variants) {
-//       try {
-//         parsedVariants =
-//           typeof variants === "string" ? JSON.parse(variants) : variants;
-//       } catch {
-//         throw new ApiError(400, "Invalid variants format");
-//       }
-//     }
-
-//     for (const v of parsedVariants) {
-//       if (
-//         isNaN(Number(v.original_price)) ||
-//         isNaN(Number(v.discounted_price)) ||
-//         isNaN(Number(v.stock))
-//       ) {
-//         throw new ApiError(400, "Invalid numeric values in variants");
-//       }
-
-//       if (Number(v.stock) < 0) {
-//         throw new ApiError(400, "Stock cannot be negative");
-//       }
-//     }
-
-//     // Validate category if changed
-//     let categoryId = existingProduct.category_id;
-//     if (category) {
-//       const categoryDetails = await prisma.category.findUnique({
-//         where: { slug: category },
-//         select: { id: true },
-//       });
-
-//       if (!categoryDetails) throw new ApiError(404, "Category not found");
-
-//       categoryId = categoryDetails.id;
-//     }
-
-//     // // Case-insensitive duplicate name check
-//     // if (name && name !== existingProduct.name) {
-//     //   const duplicate = await prisma.product.findFirst({
-//     //     where: {
-//     //       name: { equals: name, mode: "insensitive" },
-//     //       NOT: { id: existingProduct.id },
-//     //     },
-//     //   });
-
-//     //   if (duplicate)
-//     //     throw new ApiError(400, "Another product with this name exists");
-//     // }
-
-//     // Generate unique slug if name changed
-//     let updatedSlug = existingProduct.slug;
-
-//     if (name && name !== existingProduct.name) {
-//       let baseSlug = name.toLowerCase().trim().replace(/\s+/g, "-");
-//       let tempSlug = baseSlug;
-//       let counter = 1;
-
-//       while (
-//         await prisma.product.findFirst({
-//           where: {
-//             slug: tempSlug,
-//             NOT: { id: existingProduct.id },
-//           },
-//         })
-//       ) {
-//         tempSlug = `${baseSlug}-${counter++}`;
-//       }
-
-//       updatedSlug = tempSlug;
-//     }
-
-//     // Group uploaded files by fieldname
-//     const files = req.files as Express.Multer.File[];
-//     const groupedFiles: Record<string, Express.Multer.File[]> = {};
-
-//     if (files) {
-//       for (const file of files) {
-//         if (!groupedFiles[file.fieldname]) {
-//           groupedFiles[file.fieldname] = [];
-//         }
-//         groupedFiles[file.fieldname]!.push(file);
-//       }
-//     }
-
-//     const result = await prisma.$transaction(async (tx) => {
-//       // 1️⃣ Update product
-//       const updatedProduct = await tx.product.update({
-//         where: { id: existingProduct.id },
-//         data: {
-//           name: name ?? existingProduct.name,
-//           slug: updatedSlug,
-//           description: description ?? existingProduct.description,
-//           brand: brand ?? existingProduct.brand,
-//           category_id: categoryId,
-//         },
-//       });
-
-//       const existingVariantIds = existingProduct.variants.map((v) => v.id);
-//       const incomingVariantIds = parsedVariants
-//         .filter((v) => v.id)
-//         .map((v) => v.id as number);
-
-//       // 2️⃣ Delete removed variants
-//       const variantsToDelete = existingVariantIds.filter(
-//         (id) => !incomingVariantIds.includes(id),
-//       );
-
-//       if (variantsToDelete.length) {
-//         await tx.productVariant.deleteMany({
-//           where: { id: { in: variantsToDelete } },
-//         });
-//       }
-
-//       // 3️⃣ Create / Update variants
-//       for (let i = 0; i < parsedVariants.length; i++) {
-//         const variant = parsedVariants[i];
-//         if (!variant) continue;
-
-//         const variantImages = groupedFiles[`images_${i}`] || [];
-
-//         let uploadedImages: {
-//           secure_url: string;
-//           public_id: string;
-//         }[] = [];
-
-//         if (variantImages.length > 0) {
-//           const uploadResults = await uploadMediaToCloudinary(variantImages);
-//           uploadedImages = uploadResults.map((img: any) => ({
-//             secure_url: img.secure_url,
-//             public_id: img.public_id,
-//           }));
-//         }
-
-//         if (variant.id) {
-//           // Ensure variant belongs to this product
-//           const belongsToProduct = existingVariantIds.includes(variant.id);
-//           if (!belongsToProduct) throw new ApiError(400, "Invalid variant ID");
-
-//           await tx.productVariant.update({
-//             where: { id: variant.id },
-//             data: {
-//               color: variant.color ?? null,
-//               size: variant.size ?? null,
-//               original_price: Number(variant.original_price),
-//               discounted_price: Number(variant.discounted_price),
-//               stock: Number(variant.stock),
-//               sku: generateSku(
-//                 updatedProduct.name,
-//                 variant.color,
-//                 variant.size,
-//               ),
-//               ...(uploadedImages.length > 0 && {
-//                 images: {
-//                   create: uploadedImages.map((img) => ({
-//                     image_url: img.secure_url,
-//                     image_public_id: img.public_id,
-//                   })),
-//                 },
-//               }),
-//             },
-//           });
-//         } else {
-//           await tx.productVariant.create({
-//             data: {
-//               product_id: updatedProduct.id,
-//               color: variant.color ?? null,
-//               size: variant.size ?? null,
-//               original_price: Number(variant.original_price),
-//               discounted_price: Number(variant.discounted_price),
-//               stock: Number(variant.stock),
-//               sku: generateSku(
-//                 updatedProduct.name,
-//                 variant.color,
-//                 variant.size,
-//               ),
-//               images: {
-//                 create: uploadedImages.map((img) => ({
-//                   image_url: img.secure_url,
-//                   image_public_id: img.public_id,
-//                 })),
-//               },
-//             },
-//           });
-//         }
-//       }
-
-//       return updatedProduct;
-//     });
-
-//     return res
-//       .status(200)
-//       .json(new ApiResponse("Product updated successfully", result));
-//   },
-// );
-
 const updateProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
     const { slug } = req.params;
@@ -509,9 +296,7 @@ const updateProduct = asyncHandler(
 
     let updatedSlug = existingProduct.slug;
     if (name && name !== existingProduct.name) {
-      updatedSlug = `${name
-        .toLowerCase()
-        .replace(/\s+/g, "-")}-${Date.now()}`;
+      updatedSlug = `${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
     }
 
     // GROUP FILES
@@ -537,7 +322,7 @@ const updateProduct = asyncHandler(
       const images = groupedFiles[`variants[${i}]`] || [];
 
       if (images.length > 0) {
-        const uploaded = await uploadMediaToCloudinary(images);
+        const uploaded = await uploadMediaToCloudinary(images, "products");
         uploadedImagesMap[i] = uploaded.map((img: any) => ({
           image_url: img.secure_url,
           image_public_id: img.public_id,
@@ -561,18 +346,20 @@ const updateProduct = asyncHandler(
         },
       });
 
-      const existingVariantIds = existingProduct.variants.map(v => v.id);
+      const existingVariantIds = existingProduct.variants.map((v) => v.id);
       const incomingVariantIds = parsedVariants
-        .filter(v => v.id)
-        .map(v => v.id as number);
+        .filter((v) => v.id)
+        .map((v) => v.id as number);
 
       const variantsToDelete = existingVariantIds.filter(
-        id => !incomingVariantIds.includes(id)
+        (id) => !incomingVariantIds.includes(id),
       );
 
       // Delete variants
       for (const variantId of variantsToDelete) {
-        const variant = existingProduct.variants.find(v => v.id === variantId);
+        const variant = existingProduct.variants.find(
+          (v) => v.id === variantId,
+        );
 
         if (variant?.images.length) {
           for (const img of variant.images) {
@@ -594,15 +381,14 @@ const updateProduct = asyncHandler(
 
         if (variant.id) {
           const existingVariant = existingProduct.variants.find(
-            v => v.id === variant.id
+            (v) => v.id === variant.id,
           );
-          if (!existingVariant)
-            throw new ApiError(400, "Invalid variant ID");
+          if (!existingVariant) throw new ApiError(400, "Invalid variant ID");
 
           // Remove selected images
           if (variant.removed_image_ids?.length) {
-            const imagesToRemove = existingVariant.images.filter(img =>
-              variant.removed_image_ids?.includes(img.id)
+            const imagesToRemove = existingVariant.images.filter((img) =>
+              variant.removed_image_ids?.includes(img.id),
             );
 
             for (const img of imagesToRemove) {
@@ -627,7 +413,7 @@ const updateProduct = asyncHandler(
 
           if (uploadedImages.length > 0) {
             await tx.productImage.createMany({
-              data: uploadedImages.map(img => ({
+              data: uploadedImages.map((img) => ({
                 variant_id: variant.id!,
                 image_url: img.image_url,
                 image_public_id: img.image_public_id,
@@ -646,14 +432,14 @@ const updateProduct = asyncHandler(
               sku: generateSku(
                 updatedProduct.name,
                 variant.color,
-                variant.size
+                variant.size,
               ),
             },
           });
 
           if (uploadedImages.length > 0) {
             await tx.productImage.createMany({
-              data: uploadedImages.map(img => ({
+              data: uploadedImages.map((img) => ({
                 variant_id: createdVariant.id,
                 image_url: img.image_url,
                 image_public_id: img.image_public_id,
@@ -666,35 +452,30 @@ const updateProduct = asyncHandler(
       return updatedProduct;
     });
 
-    // 🟢 STEP 3: Delete Cloudinary images AFTER transaction
     if (cloudinaryIdsToDelete.length > 0) {
-      await Promise.all(
-        cloudinaryIdsToDelete.map(id =>
-          cloudinary.uploader.destroy(id)
-        )
-      );
+      deleteMediaFromCloudinary(cloudinaryIdsToDelete).catch((err) => {
+        console.error("Failed to delete images from Cloudinary:", err);
+      });
     }
 
     return res
       .status(200)
       .json(new ApiResponse("Product updated successfully", result));
-  }
+  },
 );
 
 const deleteVariant = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
     const { variantId } = req.params;
 
-    if (!variantId)
-      throw new ApiError(400, "Variant ID is required");
+    if (!variantId) throw new ApiError(400, "Variant ID is required");
 
     const variant = await prisma.productVariant.findUnique({
       where: { id: Number(variantId) },
       include: { images: true },
     });
 
-    if (!variant)
-      throw new ApiError(404, "Variant not found");
+    if (!variant) throw new ApiError(404, "Variant not found");
 
     // Delete images from cloudinary
     if (variant.images.length > 0) {
@@ -711,8 +492,9 @@ const deleteVariant = asyncHandler(
     return res
       .status(200)
       .json(new ApiResponse("Variant deleted successfully", null));
-  }
+  },
 );
+
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const { slug: rawSlug, active = false } = req.query;
 
@@ -806,6 +588,58 @@ const getProductsByCategory = asyncHandler(
   },
 );
 
+const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
+  const { slug } = req.params;
+  if (!slug) throw new ApiError(400, "Slug is required");
+
+  const product = await prisma.product.findUnique({
+    where: { slug: slug as string },
+    include: {
+      variants: {
+        include: {
+          images: true,
+        },
+      },
+    },
+  });
+
+
+  if (!product) throw new ApiError(404, "Product not found");
+  const cloudinaryIdsToDelete: string[] = [];
+
+  for (const variant of product.variants) {
+    for (const img of variant.images) {
+      cloudinaryIdsToDelete.push(img.image_public_id);
+    }
+  }
+  await prisma.productImage.deleteMany({
+    where: {
+      variant_id: {
+        in: product.variants.map((v) => v.id),
+      },
+    },
+  });
+  await prisma.productVariant.deleteMany({
+    where: { product_id: product.id },
+  });
+
+
+  await prisma.product.delete({
+    where: { slug: slug as string },
+  });
+
+
+  if (cloudinaryIdsToDelete.length > 0) {
+    deleteMediaFromCloudinary(cloudinaryIdsToDelete).catch((err) => {
+      console.error("Failed to delete images from Cloudinary:", err);
+    });
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Product deleted successfully", null));
+});
+
 export {
   addProduct,
   getProductBySlug,
@@ -813,4 +647,5 @@ export {
   getAllProducts,
   updateProduct,
   deleteVariant,
+  deleteProduct,
 };

@@ -8,7 +8,7 @@ interface UploadFile {
   originalname: string;
 }
 
-const uploadMediaToCloudinary = async (files: UploadFile | UploadFile[]): Promise<UploadApiResponse[]> => {
+const uploadMediaToCloudinary = async (files: UploadFile | UploadFile[], path: string): Promise<UploadApiResponse[]> => {
   if (!Array.isArray(files)) {
     files = [files];
   }
@@ -18,7 +18,7 @@ const uploadMediaToCloudinary = async (files: UploadFile | UploadFile[]): Promis
         .upload_stream(
           {
             resource_type: file.mimetype.includes("image") ? "image" : "video",
-            folder: "ecommerce/",
+            folder: `ecommerce/${path}`,
           },
           (error, result) => {
             if (error) {

@@ -1,11 +1,15 @@
 import { Router } from "express";
 import {
   addProduct,
+  deleteProduct,
   getAllProducts,
   getProductBySlug,
   updateProduct,
 } from "../controller/products/product.controller.js";
-import { verifyAdminToken, verifyOptionalToken } from "../middleware/auth.middleware.js";
+import {
+  verifyAdminToken,
+  verifyOptionalToken,
+} from "../middleware/auth.middleware.js";
 import upload from "../middleware/image.middleware.js";
 
 const router = Router();
@@ -14,10 +18,11 @@ router.route("/").get(verifyOptionalToken, getAllProducts);
 router
   .route("/:slug")
   .get(getProductBySlug)
-  .patch(upload.any(), verifyAdminToken, updateProduct);
+  .patch(upload.any(), verifyAdminToken, updateProduct)
+  .delete(deleteProduct);
 
 router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);
-router.route("/:slug").post(verifyAdminToken, updateProduct);
+// router.route("/:slug").post(verifyAdminToken, updateProduct);
 
 export default router;

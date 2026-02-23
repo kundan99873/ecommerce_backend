@@ -15,7 +15,7 @@ router.route("/").get(getCategories);
 router.use(verifyAdminToken);
 router.route("/").post(upload.single("image"), addCategory);
 router
-  .route("slug")
+  .route("/:slug")
   .get(getCategoryBySlug)
   .patch(upload.single("image"), updateCategory)
   .delete(deleteCategory);

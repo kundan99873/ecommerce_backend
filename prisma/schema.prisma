@@ -47,6 +47,21 @@ model Role {
   users User[]
 }
 
+model HeroSlides {
+  id          Int    @id @default(autoincrement())
+  title       String
+  description String?
+  image_url   String
+  image_public_id String
+  is_active   Boolean @default(true)
+  cta         String?
+  link        String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  
+}
+
 model Product {
   id          Int      @id @default(autoincrement())
   name        String
@@ -61,6 +76,8 @@ model Product {
   coupons     Coupon[] @relation("ProductCoupons")
   review      Review[]
   is_active   Boolean  @default(true)
+  is_featured  Boolean  @default(false)
+  is_trending  Boolean  @default(false)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
@@ -73,7 +90,7 @@ model Product {
 model ProductVariant {
   id        Int    @id @default(autoincrement())
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
   color      String?
   size       String?
   original_price      Int
@@ -97,7 +114,7 @@ model ProductVariant {
 model ProductImage {
   id          Int    @id @default(autoincrement())
   variant_id  Int
-  variant     ProductVariant @relation(fields: [variant_id], references: [id])
+  variant     ProductVariant @relation(fields: [variant_id], references: [id], onDelete: Cascade)
   image_url       String
   image_public_id String
   is_primary  Boolean @default(false)

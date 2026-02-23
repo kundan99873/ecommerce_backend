@@ -6,6 +6,7 @@ import userRoutes from "./routes/auth.route.js";
 import corsConfig from "./config/cors.config.js";
 import productRoutes from "./routes/product.route.js";
 import categoryRoutes from "./routes/category.route.js";
+import heroSlideRoutes from "./routes/heroSlide.route.js";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -19,6 +20,7 @@ const PORT = process.env.PORT || 3000;
 app.use("/api/user", userRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/category", categoryRoutes);
+app.use("/api/hero-slides", heroSlideRoutes);
 
 app.use(errorMiddleware);
 app.listen(PORT, async () => {

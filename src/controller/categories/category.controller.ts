@@ -68,13 +68,25 @@ const getCategories = asyncHandler(async (req: Request, res: Response) => {
       description: true,
       slug: true,
       image_url: true,
+      created_at: true,
+      _count: {
+        select: {
+          products: true,
+        },
+      },
     },
     where: whereClause,
   });
 
-  res
-    .status(200)
-    .json(new ApiResponse("Categories retrieved successfully", categories));
+  res.status(200).json(
+    new ApiResponse(
+      "Categories retrieved successfully",
+      categories.map(({ _count, ...category }) => ({
+        ...category,
+        product_count: _count.products,
+      })),
+    ),
+  );
 });
 
 const updateCategory = asyncHandler(async (req: Request, res: Response) => {
@@ -105,12 +117,16 @@ const updateCategory = asyncHandler(async (req: Request, res: Response) => {
   if (req.file) {
     await deleteMediaFromCloudinary(imagePublicId as string);
     const uploadResults: UploadApiResponse[] = await uploadMediaToCloudinary(
-      req.file,
+      req.file, "category",
     );
 
     if (!uploadResults || uploadResults.length === 0 || !uploadResults[0]) {
       throw new ApiError(500, "Failed to upload category image");
     }
+
+    deleteMediaFromCloudinary(category.image_public_id as string).catch((err) => {
+      console.error("Failed to delete old category image from Cloudinary:", err);
+    });
     const uploadResult = uploadResults[0];
 
     imageUrl = uploadResult.secure_url;

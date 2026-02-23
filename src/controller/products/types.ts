@@ -12,6 +12,7 @@ export interface VariantInput {
 }
 
 export type SortOptions = "price_low" | "price_high" | "top_rated" | "newest";
+export type FilterOptions = "in_stock" | "out_of_stock" | "featured" | "trending"
 
 export interface productFilter {
   sort?: SortOptions;

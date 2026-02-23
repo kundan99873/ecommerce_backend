@@ -194,6 +194,32 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
         }
       : {}),
     ...(categoryId ? { category_id: categoryId } : {}),
+    ...(filter == "in_stock" ? {
+      variants: {
+        some: {
+          stock:{
+            gt:0,
+          }
+        }
+      }
+    } : {}),
+    ...(filter == "out_of_stock" ? {
+      variants: {
+        every: { stock: { equals: 0 } }
+      }
+    } : {}),
+    ...(filter == "featured" ? {
+      is_featured: { equals: true },
+      variants: {
+        some: { stock: { gt: 0 }}
+      }
+    } : {}),
+    ...(filter == "trending" ? {
+      is_trending: { equals: true },
+      variants: {
+        some: { stock: { gt: 0 }}
+      }
+    } : {})
   };
 
   const [totalProducts, products] = await Promise.all([
@@ -204,7 +230,11 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       where: whereCondition,
       take: limit,
       skip: (page - 1) * limit,
-      orderBy,
+      // orderBy: {
+      //   variants: {
+
+      //   }
+      // },
       select: {
         name: true,
         slug: true,
@@ -235,6 +265,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
           },
         },
       },
+      
     }),
   ]);
 

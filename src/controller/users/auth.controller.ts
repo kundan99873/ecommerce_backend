@@ -35,7 +35,7 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
 
   if (req.file) {
     try {
-      const uploadResult = await uploadMediaToCloudinary(req.file);
+      const uploadResult = await uploadMediaToCloudinary(req.file, "users");
       imageData = uploadResult[0];
     } catch (error) {
       console.error("Error uploading avatar to Cloudinary:", error);

@@ -527,9 +527,9 @@ const deleteVariant = asyncHandler(
 );
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
-  const { slug: rawSlug, active = false } = req.query;
+  const {  active = false } = req.query;
 
-  const slug = typeof rawSlug === "string" ? rawSlug : undefined;
+  const slug = req.params.slug;
 
   if (!slug) {
     throw new ApiError(400, "slug is required");

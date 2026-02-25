@@ -3,9 +3,10 @@ import { prisma } from "../../libs/prisma.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { ApiError } from "../../utils/apiError.js";
+import type { CouponInput, CouponQuery } from "./coupon.types.js";
 
 const addCoupon = asyncHandler(async (req: Request, res: Response) => {
-  const data = req.body;
+  const data = req.body as CouponInput;
 
   if (!data.code) {
     throw new ApiError(400, "Coupon code is required");
@@ -42,13 +43,23 @@ const addCoupon = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
-  res
-    .status(201)
-    .json(new ApiResponse("Coupon created successfully", coupon));
+  res.status(201).json(new ApiResponse("Coupon created successfully", coupon));
 });
 
-const getCoupons = asyncHandler(async (_req: Request, res: Response) => {
+const getCoupons = asyncHandler(async (req: Request, res: Response) => {
+  const { page = 1, limit = 10, search } = req.query as CouponQuery;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const where: Record<string, any> = {};
+
+  if (search) {
+    where.code = { contains: search.toString(), mode: "insensitive" };
+  }
+
   const coupons = await prisma.coupon.findMany({
+    where,
+    skip,
+    take: Number(limit),
     orderBy: { created_at: "desc" },
   });
 
@@ -94,6 +105,7 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 
   const data = req.body;
 
+  console.log({ data });
   if (data.code && data.code !== existing.code) {
     const duplicate = await prisma.coupon.findUnique({
       where: { code: data.code.toUpperCase() },
@@ -114,14 +126,23 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 
   if (data.code) updateData.code = data.code.toUpperCase();
   if (data.description !== undefined) updateData.description = data.description;
-  if (data.discount_type !== undefined) updateData.discount_type = data.discount_type;
-  if (data.discount_value !== undefined) updateData.discount_value = data.discount_value;
+  if (data.discount_type !== undefined)
+    updateData.discount_type = data.discount_type;
+  if (data.discount_value !== undefined)
+    updateData.discount_value = data.discount_value;
   if (data.start_date) updateData.start_date = new Date(data.start_date);
   if (data.end_date) updateData.end_date = new Date(data.end_date);
   if (data.max_uses !== undefined) updateData.max_uses = data.max_uses;
-  if (data.min_purchase !== undefined) updateData.min_purchase = data.min_purchase;
+  if (data.min_purchase !== undefined)
+    updateData.min_purchase = data.min_purchase;
   if (data.is_active !== undefined) updateData.is_active = data.is_active;
   if (data.is_global !== undefined) updateData.is_global = data.is_global;
+  // console.log(typeof data.is_active, 88)
+  // if (typeof data.is_active === "boolean")
+  //   updateData.is_active = data.is_active;
+
+  // if (typeof data.is_global === "boolean")
+  //   updateData.is_global = data.is_global;
 
   const updatedCoupon = await prisma.coupon.update({
     where: { id: couponId },
@@ -152,15 +173,7 @@ const deleteCoupon = asyncHandler(async (req: Request, res: Response) => {
     where: { id: couponId },
   });
 
-  res
-    .status(200)
-    .json(new ApiResponse("Coupon deleted successfully", null));
+  res.status(200).json(new ApiResponse("Coupon deleted successfully", null));
 });
 
-export {
-  addCoupon,
-  getCoupons,
-  getCouponById,
-  updateCoupon,
-  deleteCoupon,
-};
+export { addCoupon, getCoupons, getCouponById, updateCoupon, deleteCoupon };

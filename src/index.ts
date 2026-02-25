@@ -24,7 +24,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/hero-slides", heroSlideRoutes);
-app.use("/api/coupons", couponRoutes);
+app.use("/api/coupon", couponRoutes);
 
 app.use(errorMiddleware);
 app.listen(PORT, async () => {

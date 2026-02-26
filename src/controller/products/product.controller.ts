@@ -194,32 +194,40 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
         }
       : {}),
     ...(categoryId ? { category_id: categoryId } : {}),
-    ...(filter == "in_stock" ? {
-      variants: {
-        some: {
-          stock:{
-            gt:0,
-          }
+    ...(filter == "in_stock"
+      ? {
+          variants: {
+            some: {
+              stock: {
+                gt: 0,
+              },
+            },
+          },
         }
-      }
-    } : {}),
-    ...(filter == "out_of_stock" ? {
-      variants: {
-        every: { stock: { equals: 0 } }
-      }
-    } : {}),
-    ...(filter == "featured" ? {
-      is_featured: { equals: true },
-      variants: {
-        some: { stock: { gt: 0 }}
-      }
-    } : {}),
-    ...(filter == "trending" ? {
-      is_trending: { equals: true },
-      variants: {
-        some: { stock: { gt: 0 }}
-      }
-    } : {})
+      : {}),
+    ...(filter == "out_of_stock"
+      ? {
+          variants: {
+            every: { stock: { equals: 0 } },
+          },
+        }
+      : {}),
+    ...(filter == "featured"
+      ? {
+          is_featured: { equals: true },
+          variants: {
+            some: { stock: { gt: 0 } },
+          },
+        }
+      : {}),
+    ...(filter == "trending"
+      ? {
+          is_trending: { equals: true },
+          variants: {
+            some: { stock: { gt: 0 } },
+          },
+        }
+      : {}),
   };
 
   const [totalProducts, products] = await Promise.all([
@@ -265,7 +273,6 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
           },
         },
       },
-      
     }),
   ]);
 
@@ -279,6 +286,73 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       ),
     );
 });
+
+const getProductWithoutVariants = asyncHandler(
+  async (req: Request, res: Response) => {
+    const {
+      page = 1,
+      limit = 20,
+      search,
+      category,
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      search?: string;
+      category?: string;
+    };
+
+    const whereCondition: Prisma.ProductWhereInput = {
+      ...(search
+        ? {
+            name: {
+              contains: search,
+              mode: "insensitive",
+            },
+          }
+        : {}),
+      ...(category
+        ? {
+            category: {
+              slug: category,
+            },
+          }
+        : {}),
+    };
+
+    const [totalCount, products] = await Promise.all([
+      prisma.product.count({
+        where: whereCondition,
+      }),
+      prisma.product.findMany({
+        select: {
+          name: true,
+          slug: true,
+          description: true,
+          brand: true,
+          category: {
+            select: {
+              name: true,
+              slug: true,
+            },
+          },
+          is_active: true,
+        },
+        where: whereCondition,
+        take: Number(limit),
+        skip: (Number(page) - 1) * Number(limit),
+      }),
+    ]);
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Products retrieved successfully",
+          products,
+          totalCount,
+        ),
+      );
+  },
+);
 
 const updateProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
@@ -527,7 +601,7 @@ const deleteVariant = asyncHandler(
 );
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
-  const {  active = false } = req.query;
+  const { active = false } = req.query;
 
   const slug = req.params.slug;
 
@@ -634,7 +708,6 @@ const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
-
   if (!product) throw new ApiError(404, "Product not found");
   const cloudinaryIdsToDelete: string[] = [];
 
@@ -654,11 +727,9 @@ const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
     where: { product_id: product.id },
   });
 
-
   await prisma.product.delete({
     where: { slug: slug as string },
   });
-
 
   if (cloudinaryIdsToDelete.length > 0) {
     deleteMediaFromCloudinary(cloudinaryIdsToDelete).catch((err) => {
@@ -676,6 +747,7 @@ export {
   getProductBySlug,
   getProductsByCategory,
   getAllProducts,
+  getProductWithoutVariants,
   updateProduct,
   deleteVariant,
   deleteProduct,

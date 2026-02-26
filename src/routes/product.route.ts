@@ -4,6 +4,7 @@ import {
   deleteProduct,
   getAllProducts,
   getProductBySlug,
+  getProductWithoutVariants,
   updateProduct,
 } from "../controller/products/product.controller.js";
 import {
@@ -15,6 +16,7 @@ import upload from "../middleware/image.middleware.js";
 const router = Router();
 
 router.route("/").get(verifyOptionalToken, getAllProducts);
+router.route("/without-variants").get(verifyOptionalToken, getProductWithoutVariants);
 router
   .route("/:slug")
   .get(getProductBySlug)

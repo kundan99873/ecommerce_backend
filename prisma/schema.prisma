@@ -36,6 +36,7 @@ model User {
   review     Review[]
   order      Order[]
   coupons    Coupon[] @relation("UserCoupons")
+  coupon_usages  CouponUsage[]
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 }
@@ -75,6 +76,7 @@ model Product {
   pincode     ProductPincode[]
   coupons     Coupon[] @relation("ProductCoupons")
   review      Review[]
+  coupon_usages  CouponUsage[]
   is_active   Boolean  @default(true)
   is_featured  Boolean  @default(false)
   is_trending  Boolean  @default(false)
@@ -185,14 +187,35 @@ model Coupon {
   start_date     DateTime
   end_date       DateTime
   max_uses       Int?
+  max_uses_per_user Int?
   min_purchase   Int?
   is_active      Boolean      @default(true)
   is_global      Boolean      @default(false)
   products       Product[]    @relation("ProductCoupons")
   orders         Order[]      
   users          User[]       @relation("UserCoupons")
+  usages         CouponUsage[]
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+  @@index([code])
+  @@index([is_active])
+}
+
+model CouponUsage {
+  id          Int      @id @default(autoincrement())
+  coupon_id   Int
+  coupon      Coupon   @relation(fields: [coupon_id], references: [id])
+  user_id     Int
+  user        User     @relation(fields: [user_id], references: [id])
+  product_id  Int?
+  product     Product? @relation(fields: [product_id], references: [id])
+  order_id    Int
+  order       Order    @relation(fields: [order_id], references: [id])
+  used_at     DateTime @default(now())
+  @@index([coupon_id])
+  @@index([user_id])
+  @@index([order_id])
+  @@unique([coupon_id, user_id, order_id])
 }
 
 model Wishlist {
@@ -252,6 +275,7 @@ model Order {
   payment_method String?   
   shipping_address String
   items        OrderItem[]
+  coupon_usages CouponUsage[]
   created_at   DateTime    @default(now())
   updated_at   DateTime    @updatedAt
 }

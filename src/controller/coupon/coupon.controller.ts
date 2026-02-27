@@ -40,6 +40,16 @@ const addCoupon = asyncHandler(async (req: Request, res: Response) => {
       min_purchase: data.min_purchase ?? null,
       is_active: data.is_active ?? true,
       is_global: data.is_global ?? false,
+      ...(data.product_ids && {
+        products: {
+          connect: data.product_ids.map((id) => ({ id })),
+        },
+      }),
+      ...(data.user_ids && {
+        users: {
+          connect: data.user_ids.map((id) => ({ id })),
+        },
+      }),
     },
   });
 
@@ -105,7 +115,6 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 
   const data = req.body;
 
-  console.log({ data });
   if (data.code && data.code !== existing.code) {
     const duplicate = await prisma.coupon.findUnique({
       where: { code: data.code.toUpperCase() },
@@ -137,6 +146,16 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
     updateData.min_purchase = data.min_purchase;
   if (data.is_active !== undefined) updateData.is_active = data.is_active;
   if (data.is_global !== undefined) updateData.is_global = data.is_global;
+  if (data.product_ids) {
+    updateData.products = {
+      set: data.product_ids.map((id: number) => ({ id })),
+    };
+  }
+  if (data.user_ids) {
+    updateData.users = {
+      set: data.user_ids.map((id: number) => ({ id })),
+    };
+  }
   // console.log(typeof data.is_active, 88)
   // if (typeof data.is_active === "boolean")
   //   updateData.is_active = data.is_active;

@@ -9,6 +9,8 @@ export interface CouponInput {
     max_uses?: number | null;
     is_active?: boolean;
     is_global?: boolean;
+    product_ids?: number[]; 
+    user_ids?: number[];
 }
 
 export interface CouponUpdateInput {

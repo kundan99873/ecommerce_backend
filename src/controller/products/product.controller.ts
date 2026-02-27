@@ -319,12 +319,15 @@ const getProductWithoutVariants = asyncHandler(
         : {}),
     };
 
+    console.log({ whereCondition });
+
     const [totalCount, products] = await Promise.all([
       prisma.product.count({
         where: whereCondition,
       }),
       prisma.product.findMany({
         select: {
+          id: true,
           name: true,
           slug: true,
           description: true,
@@ -632,6 +635,20 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
           },
         },
       },
+      coupons: {
+        where: {
+          is_active: true,
+        }, 
+        select:{
+          code: true,
+          discount_type: true,
+          discount_value: true,
+          description: true,
+          min_purchase: true,
+          start_date: true,
+          end_date: true,
+        }
+      }
     },
   });
 

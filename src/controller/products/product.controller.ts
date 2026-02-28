@@ -145,7 +145,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsedQuery = productQuerySchema.parse(req.query);
   const userId = req.user?.user_id;
   console.log({ userId });
-  const { sort, category, filter } = req.query as productFilter;
+  const { sort, category, filter, is_product_listing_page: isPLP } = req.query as productFilter;
 
   let orderBy: any = { created_at: "desc" };
   switch (sort) {
@@ -238,11 +238,6 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       where: whereCondition,
       take: limit,
       skip: (page - 1) * limit,
-      // orderBy: {
-      //   variants: {
-
-      //   }
-      // },
       select: {
         name: true,
         slug: true,
@@ -256,6 +251,8 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
         },
         is_active: true,
         variants: {
+          ...(isPLP ? { take: 1 } : {}),
+          ...(!isPLP ? {} : { orderBy: { discounted_price: "asc" } }),
           select: {
             color: true,
             size: true,
@@ -264,6 +261,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
             stock: true,
             sku: true,
             images: {
+              ...(!isPLP ? {} : { take: 1 }),
               select: {
                 image_url: true,
                 id: true,
@@ -286,6 +284,8 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       ),
     );
 });
+
+
 
 const getProductWithoutVariants = asyncHandler(
   async (req: Request, res: Response) => {
@@ -605,6 +605,7 @@ const deleteVariant = asyncHandler(
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const { active = false } = req.query;
+  const userId = req.user?.user_id;
 
   const slug = req.params.slug;
 
@@ -614,41 +615,56 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
 
   const product = await prisma.product.findUnique({
     where: { slug: slug as string },
-    include: {
+    select: {
+      name: true,
+      slug: true,
+      description: true,
+      brand: true,
       category: {
         select: {
           name: true,
           slug: true,
         },
       },
+      is_active: true,
       variants: {
-        ...(active
-          ? {
-              where: { is_active: true, stock: { gt: 0 } },
-            }
-          : {}),
-        include: {
+        select: {
+          color: true,
+          size: true,
+          original_price: true,
+          discounted_price: true,
+          stock: true,
+          sku: true,
           images: {
             select: {
               image_url: true,
+              id: true,
             },
           },
+          id: true,
         },
       },
-      coupons: {
-        where: {
-          is_active: true,
-        }, 
-        select:{
-          code: true,
-          discount_type: true,
-          discount_value: true,
-          description: true,
-          min_purchase: true,
-          start_date: true,
-          end_date: true,
-        }
-      }
+    }
+  });
+
+  const coupons = await prisma.coupon.findMany({
+    where: {
+      is_active: true,
+      OR: [
+        { is_global: true },
+        { products: { some: { slug: slug as string } } },
+        ...(userId ? [{ users: { some: { id: userId } } }] : []),
+      ],
+    },
+    select: {
+      code: true,
+      discount_type: true,
+      discount_value: true,
+      max_discount: true,
+      description: true,
+      min_purchase: true,
+      start_date: true,
+      end_date: true,
     },
   });
 
@@ -658,7 +674,12 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
 
   return res
     .status(200)
-    .json(new ApiResponse("Product retrieved successfully", product));
+    .json(
+      new ApiResponse("Product retrieved successfully", {
+        ...product,
+        coupons,
+      }),
+    );
 });
 
 const getProductsByCategory = asyncHandler(

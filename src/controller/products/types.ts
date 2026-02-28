@@ -18,6 +18,7 @@ export interface productFilter {
   sort?: SortOptions;
   category?: string;
   filter?: any;
+  is_product_listing_page?: any;
 }
 
 export interface addProductInput {

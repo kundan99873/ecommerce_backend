@@ -179,24 +179,28 @@ enum DiscountType {
 }
 
 model Coupon {
-  id             Int          @id @default(autoincrement())
-  code           String       @unique
-  description    String?
-  discount_type  DiscountType
-  discount_value Int
-  start_date     DateTime
-  end_date       DateTime
-  max_uses       Int?
+  id                Int          @id @default(autoincrement())
+  code              String       @unique
+  description       String?
+  discount_type     DiscountType
+  discount_value    Int
+  max_discount      Int?         
+  start_date        DateTime
+  end_date          DateTime
+  max_uses          Int?
   max_uses_per_user Int?
-  min_purchase   Int?
-  is_active      Boolean      @default(true)
-  is_global      Boolean      @default(false)
-  products       Product[]    @relation("ProductCoupons")
-  orders         Order[]      
-  users          User[]       @relation("UserCoupons")
-  usages         CouponUsage[]
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  min_purchase      Int?
+  is_active         Boolean      @default(true)
+  is_global         Boolean      @default(false)
+
+  products          Product[]    @relation("ProductCoupons")
+  users             User[]       @relation("UserCoupons")
+  orders            Order[]
+  usages            CouponUsage[]
+
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+
   @@index([code])
   @@index([is_active])
 }

@@ -5,6 +5,7 @@ const productQuerySchema = z.object({
   limit: z.string().optional(),
   search: z.string().optional(),
   filter: z.string().optional(),
+  is_product_listing_page: z.string().optional(),
 });
 
 export { productQuerySchema };

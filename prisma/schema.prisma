@@ -11,6 +11,7 @@ model User {
   id        Int     @id @default(autoincrement())
   name      String
   email     String  @unique
+  pnone_code   String?
   phone_number String? @unique
   password  String?
   avatar_url        String? 
@@ -35,6 +36,7 @@ model User {
   wishlist   Wishlist[]
   review     Review[]
   order      Order[]
+  address    Address[]
   coupons    Coupon[] @relation("UserCoupons")
   coupon_usages  CouponUsage[]
   created_at DateTime @default(now())
@@ -277,11 +279,17 @@ model Order {
   status       OrderStatus      @default(PENDING) 
   payment_status PaymentStatus  @default(PENDING) 
   payment_method String?   
-  shipping_address String
+  address_id   Int
+  address      Address     @relation(fields: [address_id], references: [id])
   items        OrderItem[]
   coupon_usages CouponUsage[]
   created_at   DateTime    @default(now())
   updated_at   DateTime    @updatedAt
+
+    @@index([user_id])
+    @@index([order_number])
+    @@index([status])
+
 }
 
 model OrderItem {
@@ -297,3 +305,29 @@ model OrderItem {
   @@unique([order_id, product_variant_id])
 }
 
+model Address {
+  id            Int      @id @default(autoincrement())
+  user_id        Int
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  first_name     String
+  last_name      String
+  phone_code     String?
+  phone_number   String
+  line1          String
+  line2          String?
+  city           String
+  state          String
+  pin_code    String
+  country        String   @default("India")
+  landmark       String?
+  is_default     Boolean  @default(false)
+  is_active      Boolean  @default(true)
+
+  orders         Order[]
+
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([user_id])
+}

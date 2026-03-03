@@ -3,6 +3,3 @@ export interface cartProduct {
   quantity: number;
 }
 
-export interface wishlistProduct {
-    slug: string;
-}

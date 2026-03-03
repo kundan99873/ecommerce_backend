@@ -26,6 +26,7 @@ const addCategory = asyncHandler(async (req: Request, res: Response) => {
 
   const uploadResults: UploadApiResponse[] = await uploadMediaToCloudinary(
     req.file,
+    "category",
   );
 
   if (!uploadResults || uploadResults.length === 0 || !uploadResults[0]) {

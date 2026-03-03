@@ -24,6 +24,13 @@ import {
 } from "../middleware/auth.middleware.js";
 import { getLoggedInUser } from "../controller/users/user.controller.js";
 import { addRole } from "../controller/users/role.controller.js";
+import {
+  addAddress,
+  deleteAddress,
+  getUserAddresses,
+  updateAddress,
+} from "../controller/users/userInfo.controller.js";
+import { addAddressSchema } from "../validations/user.validation.js";
 
 const router = Router();
 
@@ -44,5 +51,14 @@ router
   .post(validate(changePasswordSchema), changePassword);
 router.route("/get-details").get(getLoggedInUser);
 router.post("/logout", logoutUser);
+
+router
+  .route("/address")
+  .post(validate(addAddressSchema), addAddress)
+  .get(getUserAddresses);
+router
+  .route("/address/:id")
+  .delete(deleteAddress)
+  .patch(validate(addAddressSchema), updateAddress);
 
 export default router;

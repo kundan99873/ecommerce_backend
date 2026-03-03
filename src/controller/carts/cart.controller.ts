@@ -5,109 +5,168 @@ import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 
-const addProductToCart = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { slug: sku, quantity } = req.body as cartProduct
+const addProductToCart = asyncHandler(async (req: Request, res: Response) => {
+  const { slug: sku, quantity } = req.body as cartProduct;
 
-    const userId = req.user!.user_id;
+  const userId = req.user!.user_id;
 
-    if (!sku || !quantity || quantity <= 0) {
-      throw new ApiError(400, "SKU and valid quantity are required");
-    }
+  if (!sku || !quantity || quantity <= 0) {
+    throw new ApiError(400, "SKU and valid quantity are required");
+  }
 
-    const variant = await prisma.productVariant.findUnique({
-      where: { sku },
-      include: {
-        product: true,
+  const variant = await prisma.productVariant.findUnique({
+    where: { sku },
+    include: {
+      product: true,
+    },
+  });
+
+  console.log({ sku, variant });
+
+  if (!variant) {
+    throw new ApiError(404, "Product variant not found");
+  }
+
+  if (!variant.is_active) {
+    throw new ApiError(400, "Variant is not active");
+  }
+
+  if (variant.stock < quantity) {
+    throw new ApiError(400, "Insufficient stock");
+  }
+
+  const cart = await prisma.cart.upsert({
+    where: { user_id: userId },
+    update: {},
+    create: {
+      user_id: userId,
+    },
+  });
+
+  const existingCartItem = await prisma.cartItem.findUnique({
+    where: {
+      cart_id_product_variant_id: {
+        cart_id: cart.id,
+        product_variant_id: variant.id,
       },
-    });
+    },
+  });
 
-    if (!variant) {
-      throw new ApiError(404, "Product variant not found");
-    }
+  let cartItem;
 
-    if (!variant.is_active) {
-      throw new ApiError(400, "Variant is not active");
-    }
+  if (existingCartItem) {
+    const newQuantity = existingCartItem.quantity + quantity;
 
-    if (variant.stock < quantity) {
+    if (variant.stock < newQuantity) {
       throw new ApiError(400, "Insufficient stock");
     }
 
-    const cart = await prisma.cart.upsert({
-      where: { user_id: userId },
-      update: {},
-      create: {
-        user_id: userId,
+    cartItem = await prisma.cartItem.update({
+      where: { id: existingCartItem.id },
+      data: {
+        quantity: newQuantity,
       },
     });
-
-    const existingCartItem = await prisma.cartItem.findUnique({
-      where: {
-        cart_id_product_variant_id: {
-          cart_id: cart.id,
-          product_variant_id: variant.id,
-        },
+  } else {
+    cartItem = await prisma.cartItem.create({
+      data: {
+        cart_id: cart.id,
+        product_variant_id: variant.id,
+        quantity,
+        price: variant.discounted_price,
       },
     });
+  }
 
-    let cartItem;
+  return res
+    .status(200)
+    .json(new ApiResponse("Product added to cart successfully", cartItem));
+});
 
-    if (existingCartItem) {
-      const newQuantity = existingCartItem.quantity + quantity;
-
-      if (variant.stock < newQuantity) {
-        throw new ApiError(400, "Insufficient stock");
-      }
-
-      cartItem = await prisma.cartItem.update({
-        where: { id: existingCartItem.id },
-        data: {
-          quantity: newQuantity,
-        },
-      });
-    } else {
-      cartItem = await prisma.cartItem.create({
-        data: {
-          cart_id: cart.id,
-          product_variant_id: variant.id,
-          quantity,
-          price: variant.discounted_price,
-        },
-      });
-    }
-
-    return res
-      .status(200)
-      .json(new ApiResponse("Product added to cart successfully", cartItem));
-  },
-);
-
-const getCartProducts = asyncHandler(async(req: Request, res: Response) => {
+// const getCartProducts = asyncHandler(async (req: Request, res: Response) => {
+const getCartProducts = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
 
-  const getCarts = await prisma.cart.findUnique({
-    where: { user_id: userId},
-    include: {
+  const cart = await prisma.cart.findUnique({
+    where: { user_id: userId },
+    select: {
+      id: true,
       items: {
-        include: {
+        select: {
+          id: true,
+          quantity: true,
+          price: true,
           product_variant: {
-            include: {
-              product: true
-            }
-          }
-        }
-      }
-    }
-  })
+            select: {
+              id: true,
+              sku: true,
+              stock: true,
+              color: true,
+              size: true,
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
+              images: {
+                select: {
+                  image_url: true,
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
-  return res.status(200).json(new ApiResponse("Cart item retrived successfully...", getCarts))
-})
+  if (!cart) {
+    return res.status(200).json(
+      new ApiResponse("Cart is empty", {
+        id: null,
+        items: [],
+        cartSubtotal: 0,
+      }),
+    );
+  }
 
+  const formattedItems = cart.items.map((item) => {
+    const subtotal = item.price * item.quantity;
+
+    return {
+      quantity: item.quantity,
+      price: item.price,
+      subtotal,
+      name: item.product_variant.product.name,
+      slug: item.product_variant.product.slug,
+      sku: item.product_variant.sku,
+      color: item.product_variant.color,
+      size: item.product_variant.size,
+      stock: item.product_variant.stock,
+      image: item.product_variant.images[0]?.image_url ?? null,
+    };
+  });
+
+  const cartSubtotal = formattedItems.reduce(
+    (acc, item) => acc + item.subtotal,
+    0,
+  );
+
+  return res.status(200).json(
+    new ApiResponse("Cart items retrieved successfully", {
+      items: formattedItems,
+      total_price: cartSubtotal,
+      total_items: formattedItems.length,
+    }),
+  );
+});
 const updateCartItem = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
     const userId = req.user!.user_id;
-    const { sku, quantity } = req.body as { sku: string; quantity: number };
+    const { slug: sku, quantity } = req.body as cartProduct;
 
     if (!sku || quantity == null) {
       throw new ApiError(400, "SKU and quantity are required");
@@ -124,6 +183,8 @@ const updateCartItem = asyncHandler(
     if (!cart) {
       throw new ApiError(404, "Cart not found");
     }
+
+    console.log({cart, sku})
 
     const variant = await prisma.productVariant.findUnique({
       where: { sku },
@@ -202,7 +263,6 @@ const deleteProductFromCart = asyncHandler(
           cart_id: cart.id,
           product_variant_id: variant.id,
         },
-
       },
     });
 
@@ -220,4 +280,30 @@ const deleteProductFromCart = asyncHandler(
   },
 );
 
-export { addProductToCart, getCartProducts, updateCartItem, deleteProductFromCart };
+const clearCart = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.user_id;
+
+  const cart = await prisma.cart.findUnique({
+    where: { user_id: userId },
+  });
+
+  if (!cart) {
+    throw new ApiError(404, "Cart not found");
+  }
+
+  await prisma.cartItem.deleteMany({
+    where: { cart_id: cart.id },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Cart cleared successfully", null));
+});
+
+export {
+  addProductToCart,
+  getCartProducts,
+  updateCartItem,
+  deleteProductFromCart,
+  clearCart,
+};

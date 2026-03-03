@@ -9,6 +9,8 @@ import productRoutes from "./routes/product.route.js";
 import categoryRoutes from "./routes/category.route.js";
 import heroSlideRoutes from "./routes/heroSlide.route.js";
 import couponRoutes from "./routes/coupon.routes.js";
+import cartWishliadtRoutes from "./routes/cartWishlist.route.js";
+import orderRoutes from "./routes/order.route.js";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -21,10 +23,12 @@ app.use(compression())
 const PORT = process.env.PORT || 3000;
 
 app.use("/api/user", userRoutes);
+app.use("/api/users", cartWishliadtRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/hero-slides", heroSlideRoutes);
 app.use("/api/coupon", couponRoutes);
+app.use("/api/order", orderRoutes);
 
 app.use(errorMiddleware);
 app.listen(PORT, async () => {

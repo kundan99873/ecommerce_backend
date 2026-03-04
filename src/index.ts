@@ -18,9 +18,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(corsConfig);
 app.use(cookieParser());
 app.use(morgan("dev"));
-app.use(compression())
+app.use(compression());
 
 const PORT = process.env.PORT || 3000;
+
+app.get("/", (_, res) => res.send("Welcome to the E-commerce API"));
 
 app.use("/api/user", userRoutes);
 app.use("/api/users", cartWishliadtRoutes);

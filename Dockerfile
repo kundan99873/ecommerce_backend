@@ -1,24 +1,18 @@
-# -------- Build Stage --------
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
-COPY . .
-RUN npm run build
-
-# -------- Production Stage --------
+# -------- Development Stage --------
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Copy package.json first for caching
 COPY package*.json ./
-RUN npm install --omit=dev
 
-COPY --from=builder /app/dist ./dist
+# Install all dependencies (including dev)
+RUN npm install
+
+# Copy everything
+COPY . .
 
 EXPOSE 3000
 
-CMD ["node", "dist/src/index.js"]
+# Use dev script with tsx
+CMD ["npm", "run", "dev"]

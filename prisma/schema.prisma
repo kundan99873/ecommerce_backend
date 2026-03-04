@@ -253,10 +253,14 @@ model Review {
 
 enum OrderStatus {
   PENDING
-  PAID
   SHIPPED
   DELIVERED
   CANCELLED
+  PACKED
+  OUT_FOR_DELIVERY
+  RETURN_REQUESTED
+  RETURNED
+  PROCESSING
 }
 
 enum PaymentStatus {

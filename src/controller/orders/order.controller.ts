@@ -8,6 +8,7 @@ import {
 } from "../../../generated/prisma/enums.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
+import type { OrderPayload } from "./order.types.js";
 
 const generateOrderNumber = () =>
   `ORD-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -204,6 +205,81 @@ const getUserOrders = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.user_id as number;
   const orders = await prisma.order.findMany({
     where: { user_id: userId },
+    select: {
+      order_number: true,
+      total_amount: true,
+      discount_amount: true,
+      final_amount: true,
+      status: true,
+      payment_status: true,
+      created_at: true,
+      items: {
+        select: {
+          quantity: true,
+          price: true,
+          product_variant: {
+            select: {
+              product_id: true,
+              color: true,
+              size: true,
+              product: {
+                select: {
+                  name: true,
+                  slug: true,
+                  brand: true,
+                  category: {
+                    select: { name: true },
+                  },
+                },
+              },
+              images: {
+                select: {
+                  image_url: true,
+                  is_primary: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { created_at: "desc" },
+  });
+
+  console.log({ orders });
+
+  const formattedOrders = orders.map((order) => ({
+    order_number: order.order_number,
+    total_amount: order.total_amount,
+    discount_amount: order.discount_amount,
+    final_amount: order.final_amount,
+    status: order.status,
+    payment_status: order.payment_status,
+    purchase_date: order.created_at,
+    items: order.items.map((item) => ({
+      quantity: item.quantity,
+      price: item.price,
+      brand: item.product_variant.product.brand,
+      category: item.product_variant.product.category?.name,
+      color: item.product_variant.color,
+      size: item.product_variant.size,
+      name: item.product_variant.product.name,
+      slug: item.product_variant.product.slug,
+      images: item.product_variant.images,
+    })),
+  }));
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Orders retrieved successfully", formattedOrders));
+});
+
+const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user?.user_id as number;
+  const { order_number } = req.params;
+
+  const order = await prisma.order.findFirst({
+    where: { order_number: order_number as string, user_id: userId },
     include: {
       address: true,
       items: {
@@ -215,12 +291,94 @@ const getUserOrders = asyncHandler(async (req: Request, res: Response) => {
       },
       coupon: true,
     },
-    orderBy: { created_at: "desc" },
   });
+
+  if (!order) {
+    return res.status(404).json({ message: "Order not found" });
+  }
 
   return res
     .status(200)
-    .json(new ApiResponse("Orders retrieved successfully", orders));
+    .json(new ApiResponse("Order details retrieved successfully", order));
 });
 
-export { addOrder, getUserOrders };
+const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
+  const {
+    page = 1,
+    limit = 10,
+    sortBy = "created_at",
+    sortOrder = "desc",
+  } = req.body as OrderPayload;
+  const orders = await prisma.order.findMany({
+    select: {
+      order_number: true,
+      total_amount: true,
+      discount_amount: true,
+      final_amount: true,
+      status: true,
+      payment_status: true,
+      created_at: true,
+      items: {
+        select: {
+          quantity: true,
+          price: true,
+          product_variant: {
+            select: {
+              product_id: true,
+              color: true,
+              size: true,
+              product: {
+                select: {
+                  name: true,
+                  slug: true,
+                  brand: true,
+                  category: {
+                    select: { name: true },
+                  },
+                },
+              },
+              images: {
+                select: {
+                  image_url: true,
+                  is_primary: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { [sortBy]: sortOrder },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
+
+  const formattedOrders = orders.map((order) => ({
+    order_number: order.order_number,
+    total_amount: order.total_amount,
+    discount_amount: order.discount_amount,
+    final_amount: order.final_amount,
+    status: order.status,
+    payment_status: order.payment_status,
+    purchase_date: order.created_at,
+    items: order.items.map((item) => ({
+      quantity: item.quantity,
+      price: item.price,
+      brand: item.product_variant.product.brand,
+      category: item.product_variant.product.category?.name,
+      color: item.product_variant.color,
+      size: item.product_variant.size,
+      name: item.product_variant.product.name,
+      slug: item.product_variant.product.slug,
+      images: item.product_variant.images,
+    })),
+  }));
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Orders retrieved successfully", formattedOrders));
+});
+
+export { addOrder, getUserOrders, getOrderDetails, getAllOrders
+  
+ };

@@ -29,3 +29,8 @@ export interface addProductInput {
   variants: string | VariantInput[];
 }
 
+
+export interface AddReviewPayload {
+  rating: number;
+  comment?: string;
+}

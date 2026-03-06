@@ -256,7 +256,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
         },
         is_active: true,
         variants: {
-          ...(isPLP ? { take: 1 } : {}),
+          ...(isPLP ? { take: 1 } :  {}),
           ...(!isPLP ? {} : { orderBy: { discounted_price: "asc" } }),
           select: {
             color: true,
@@ -275,6 +275,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
             id: true,
           },
         },
+
       },
     }),
   ]);
@@ -605,92 +606,6 @@ const deleteVariant = asyncHandler(
       .json(new ApiResponse("Variant deleted successfully", null));
   },
 );
-
-// const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
-//   const { color, size } = req.query as { color?: string; size?: string };
-//   const userId = req.user?.user_id;
-//   const slug = req.params.slug;
-
-//   if (!slug) {
-//     throw new ApiError(400, "slug is required");
-//   }
-
-//   const product = await prisma.product.findUnique({
-//     where: { slug: slug as string },
-//     select: {
-//       name: true,
-//       slug: true,
-//       description: true,
-//       brand: true,
-//       category: {
-//         select: {
-//           name: true,
-//           slug: true,
-//         },
-//       },
-//       is_active: true,
-//       variants: {
-//         select: {
-//           id: true,
-//           color: true,
-//           size: true,
-//           original_price: true,
-//           discounted_price: true,
-//           stock: true,
-//           sku: true,
-//           images: {
-//             select: {
-//               id: true,
-//               image_url: true,
-//             },
-//           },
-//         },
-//       },
-//     },
-//   });
-
-//   if (!product) {
-//     throw new ApiError(404, "Product not found");
-//   }
-
-//   let selectedVariant = null;
-
-//   if (color || size) {
-//     selectedVariant = product.variants.find(
-//       (variant) =>
-//         (!color || variant.color === color) && (!size || variant.size === size),
-//     );
-//   }
-
-//   const coupons = await prisma.coupon.findMany({
-//     where: {
-//       is_active: true,
-//       OR: [
-//         { is_global: true },
-//         { products: { some: { slug: slug as string } } },
-//         ...(userId ? [{ users: { some: { id: userId } } }] : []),
-//       ],
-//     },
-//     select: {
-//       code: true,
-//       discount_type: true,
-//       discount_value: true,
-//       max_discount: true,
-//       description: true,
-//       min_purchase: true,
-//       start_date: true,
-//       end_date: true,
-//     },
-//   });
-
-//   return res.status(200).json(
-//     new ApiResponse("Product retrieved successfully", {
-//       ...product,
-//       selected_variant: selectedVariant ? selectedVariant : product.variants[0],
-//       coupons,
-//     }),
-//   );
-// });
 
 const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const { color, size } = req.query as { color?: string; size?: string };

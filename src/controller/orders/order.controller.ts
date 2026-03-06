@@ -280,16 +280,64 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
 
   const order = await prisma.order.findFirst({
     where: { order_number: order_number as string, user_id: userId },
-    include: {
-      address: true,
+    select: {
+      order_number: true,
+      total_amount: true,
+      discount_amount: true,
+      final_amount: true,
+      status: true,
+      payment_status: true,
+      payment_method: true,
+      created_at: true,
       items: {
-        include: {
+        select: {
+          quantity: true,
+          price: true,
           product_variant: {
-            include: { product: true, images: true },
+            select: {
+              color: true,
+              size: true,
+              product: {
+                select: {
+                  name: true,
+                  slug: true,
+                  brand: true,
+                  category: {
+                    select: { name: true },
+                  },
+                },
+              },
+              images: {
+                select: {
+                  image_url: true,
+                  is_primary: true,
+                },
+              },
+            },
           },
         },
       },
-      coupon: true,
+      address: {
+        select: {
+          first_name: true,
+          last_name: true,
+          phone_code: true,
+          phone_number: true,
+          line1: true,
+          line2: true,
+          city: true,
+          state: true,
+          pin_code: true,
+          country: true,
+        },
+      },
+      coupon: {
+        select: {
+          code: true,
+          discount_type: true,
+          discount_value: true,
+        },
+      },
     },
   });
 
@@ -297,9 +345,34 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
     return res.status(404).json({ message: "Order not found" });
   }
 
+  const formattedOrder = {
+    order_number: order.order_number,
+    total_amount: order.total_amount,
+    discount_amount: order.discount_amount,
+    final_amount: order.final_amount,
+    status: order.status,
+    payment_status: order.payment_status,
+    payment_method: order.payment_method,
+    purchase_date: order.created_at,
+    items: order.items.map((item) => ({
+      quantity: item.quantity,
+      price: item.price,
+      brand: item.product_variant.product.brand,
+      category: item.product_variant.product.category?.name,
+      color: item.product_variant.color,
+      size: item.product_variant.size,
+      name: item.product_variant.product.name,
+      slug: item.product_variant.product.slug,
+      images: item.product_variant.images,
+    })),
+    address: order.address,
+    coupon: order.coupon,
+  };
   return res
     .status(200)
-    .json(new ApiResponse("Order details retrieved successfully", order));
+    .json(
+      new ApiResponse("Order details retrieved successfully", formattedOrder),
+    );
 });
 
 const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
@@ -379,6 +452,4 @@ const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse("Orders retrieved successfully", formattedOrders));
 });
 
-export { addOrder, getUserOrders, getOrderDetails, getAllOrders
-  
- };
+export { addOrder, getUserOrders, getOrderDetails, getAllOrders };

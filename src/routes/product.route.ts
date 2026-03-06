@@ -28,7 +28,7 @@ router
   .delete(deleteProduct);
 
 router.use(verifyUserToken);
-router.route("/rating/:slug").post(addRatingToProduct);
+router.route("/review/:slug").post(addRatingToProduct);
 
 router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);

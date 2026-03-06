@@ -305,6 +305,10 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
                   category: {
                     select: { name: true },
                   },
+                  review: {
+                    where: { user_id: userId },
+                    select: { id: true },
+                  },
                 },
               },
               images: {
@@ -364,6 +368,7 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
       name: item.product_variant.product.name,
       slug: item.product_variant.product.slug,
       images: item.product_variant.images,
+      review: item.product_variant.product.review.length > 0,
     })),
     address: order.address,
     coupon: order.coupon,

@@ -386,7 +386,7 @@ const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
     limit = 10,
     sortBy = "created_at",
     sortOrder = "desc",
-  } = req.body as OrderPayload;
+  } = req.query as OrderPayload;
   const orders = await prisma.order.findMany({
     select: {
       order_number: true,
@@ -402,7 +402,6 @@ const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
           price: true,
           product_variant: {
             select: {
-              product_id: true,
               color: true,
               size: true,
               product: {

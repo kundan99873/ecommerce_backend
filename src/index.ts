@@ -23,6 +23,16 @@ app.use(compression());
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (_, res) => res.send("Welcome to the E-commerce API"));
+app.get("/test", (req, res) => {
+  const user_agent = req.headers["user-agent"] || "";
+  const ip_address = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+  return res.json({
+    ip_address,
+    user_agent,
+    ip: req.ip,
+  });
+});
 
 app.use("/api/user", userRoutes);
 app.use("/api/users", cartWishliadtRoutes);

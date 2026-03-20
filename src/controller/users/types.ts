@@ -1,6 +1,7 @@
 export interface TokenPayload {
   user_id: number;
   role_id: number;
+  device_id: string;
 }
 
 export interface GeneratedTokens {

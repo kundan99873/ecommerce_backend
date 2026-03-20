@@ -133,9 +133,44 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(400, "Please verify your email before logging in");
   }
 
+  const devices = await prisma.userSession.findMany({
+    where: {
+      user_id: user.id,
+      is_revoked: false,
+    },
+  });
+
+  if(devices.length === 3) return res.status(200).json(new ApiResponse("Already Logged in 3 devices", devices))
+
+  const deviceId = crypto.randomBytes(32).toString("hex");
+
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const remoteAddress = req.socket?.remoteAddress;
+
+  const rawIp =
+    (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor) ??
+    remoteAddress ??
+    "";
+
+  const ip_address = String(rawIp).split(",")[0].trim() || "unknown";
+
+  const user_agent = req.headers["user-agent"] ?? "unknown";
+
+  await prisma.userSession.create({
+    data: {
+      device_id: deviceId,
+      device_name: "",
+      ip_address,
+      user_id: user.id,
+      last_used_at: new Date(),
+      user_agent,
+    },
+  });
+
   const { refreshToken, accessToken } = generateTokens({
     user_id: user.id,
     role_id: user.role_id,
+    device_id: deviceId,
   });
 
   await prisma.user.update({
@@ -143,8 +178,6 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
     data: {
       last_login_at: new Date(),
       failed_login_attempts: 0,
-      refresh_token: refreshToken,
-      refresh_token_expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       locked_until: null,
     },
   });
@@ -204,19 +237,19 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
+  const deviceId = crypto.randomBytes(32).toString("hex");
   const { accessToken, refreshToken } = generateTokens({
     user_id: user.id,
     role_id: user.role_id,
+    device_id: deviceId,
   });
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      refresh_token: refreshToken,
       last_login_at: new Date(),
       failed_login_attempts: 0,
       locked_until: null,
-      refresh_token_expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   });
 
@@ -229,10 +262,6 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
 
 const logoutUser = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
-  await prisma.user.update({
-    where: { id: userId },
-    data: { refresh_token: null },
-  });
 
   return res
     .clearCookie("accessToken", clearCookieOptions)
@@ -261,7 +290,7 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const user = await prisma.user.findFirst({
-    where: { id: decoded?.user_id as number, refresh_token: refreshToken },
+    where: { id: decoded?.user_id as number },
     select: {
       id: true,
       role_id: true,
@@ -276,11 +305,12 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
     generateTokens({
       user_id: user.id,
       role_id: user.role_id,
+      device_id: decoded?.device_id || ""
     });
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refresh_token: newRefreshToken },
-  });
+  // await prisma.user.update({
+  //   where: { id: user.id },
+  //   data: { refresh_token: newRefreshToken },
+  // });
 
   return res
     .cookie("accessToken", newAccessToken, accessTokenCookieOptions)
@@ -310,7 +340,11 @@ const isLogedInUser = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "User not found");
   }
 
-  return res.status(200).json(new ApiResponse("User is logged in", {...user, role: user.role?.name }));
+  return res
+    .status(200)
+    .json(
+      new ApiResponse("User is logged in", { ...user, role: user.role?.name }),
+    );
 });
 
 const verifyEmail = asyncHandler(async (req: Request, res: Response) => {

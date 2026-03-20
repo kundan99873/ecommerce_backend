@@ -27,8 +27,6 @@ model User {
   forgot_password_expires DateTime?
   provider       String?   
   provider_id    String?   
-  refresh_token        String?
-  refresh_token_expires DateTime?
   last_login_at         DateTime?
   failed_login_attempts Int       @default(0)
   locked_until          DateTime?
@@ -38,9 +36,28 @@ model User {
   order      Order[]
   address    Address[]
   coupons    Coupon[] @relation("UserCoupons")
+  sessions   UserSession[]
   coupon_usages  CouponUsage[]
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+}
+
+model UserSession {
+  id             String   @id @default(uuid())
+  user_id        Int
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  device_id      String   
+  device_name    String?  
+  user_agent     String?
+  ip_address     String?
+
+  is_revoked     Boolean  @default(false)
+
+  created_at     DateTime @default(now())
+  last_used_at   DateTime?
+
+  @@index([user_id, device_id])
 }
 
 model Role {

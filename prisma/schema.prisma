@@ -156,10 +156,14 @@ model Cart {
   id        Int     @id @default(autoincrement())
   user_id   Int     @unique
   user      User    @relation(fields: [user_id], references: [id])
+  coupon_id Int?
+  coupon    Coupon? @relation(fields: [coupon_id], references: [id])
   items     CartItem[]
   is_active Boolean @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+
+  @@index([coupon_id])
 }
 
 model CartItem {
@@ -197,6 +201,7 @@ model Coupon {
 
   products          Product[]    @relation("ProductCoupons")
   users             User[]       @relation("UserCoupons")
+  carts             Cart[]
   orders            Order[]
   usages            CouponUsage[]
 

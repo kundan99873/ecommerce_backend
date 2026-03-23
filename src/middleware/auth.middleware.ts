@@ -19,6 +19,32 @@ const verifyRefreshToken = (token: string): TokenPayload => {
   return decryptData(decoded.data);
 };
 
+const assertActiveSession = async (userId: number, deviceId: string) => {
+  const session = await prisma.userSession.findFirst({
+    where: {
+      user_id: userId,
+      device_id: deviceId,
+      is_revoked: false,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!session) {
+    throw new ApiError(401, "Session expired");
+  }
+
+  await prisma.userSession.update({
+    where: {
+      id: session.id,
+    },
+    data: {
+      last_used_at: new Date(),
+    },
+  });
+};
+
 const handleRefreshToken = async (
   refreshToken: string,
   res: Response,
@@ -37,19 +63,21 @@ const handleRefreshToken = async (
     throw new ApiError(401, "Invalid refresh token");
   }
 
+  await assertActiveSession(payload.user_id, payload.device_id);
+
   // 🔥 Generate new access token
   const { accessToken: newAccessToken } = generateTokens({
     user_id: user.id,
     role_id: user.role_id,
-    device_id: payload.device_id
+    device_id: payload.device_id,
   });
-  
+
   res.cookie("accessToken", newAccessToken, accessTokenCookieOptions);
-  
+
   return {
     user_id: user.id,
     role_id: user.role_id,
-    device_id: payload.device_id
+    device_id: payload.device_id,
   };
 };
 
@@ -71,21 +99,13 @@ const authenticate = async (
       }
 
       const refreshedUser = await handleRefreshToken(refreshToken, res);
-      const deviceInfo = await prisma.userSession.findFirst({
-        where: {
-          user_id: refreshedUser.user_id,
-          device_id: refreshedUser.device_id,
-          is_revoked: false
-        }
-      });
 
-      if(!deviceInfo) throw new ApiError(400, "Logged in with another devices");
- 
       req.user = refreshedUser;
       return next();
     }
 
     const payload = verifyAccessToken(accessToken);
+    await assertActiveSession(payload.user_id, payload.device_id);
     req.user = payload;
     return next();
   } catch (error: any) {
@@ -123,15 +143,24 @@ const optionalAuth = async (
   res: Response,
   next: NextFunction,
 ) => {
-  const token =
+  const accessToken =
     req.cookies?.accessToken ||
     req.header("Authorization")?.replace("Bearer ", "");
+  const refreshToken = req.cookies?.refreshToken;
 
-  if (!token) return next();
+  if (!accessToken && !refreshToken) return next();
 
   try {
-    const payload = verifyAccessToken(token);
-    req.user = payload;
+    if (accessToken) {
+      const payload = verifyAccessToken(accessToken);
+      await assertActiveSession(payload.user_id, payload.device_id);
+      req.user = payload;
+      return next();
+    }
+
+    if (refreshToken) {
+      req.user = await handleRefreshToken(refreshToken, res);
+    }
   } catch {
     // ignore errors in optional auth
   }
@@ -142,4 +171,3 @@ const optionalAuth = async (
 export const verifyUserToken = [authenticate, authorize()];
 export const verifyAdminToken = [authenticate, authorize(1)];
 export const verifyOptionalToken = optionalAuth;
-

@@ -7,16 +7,21 @@ import {
   uploadMediaToCloudinary,
 } from "../../helper/uploadFileToCloudinary.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
-import type {
-  addProductInput,
-  productFilter,
-  SortOptions,
-  VariantInput,
-} from "./types.js";
+import type { addProductInput, productFilter, VariantInput } from "./types.js";
 import { generateSku } from "../../utils/utils.js";
-import { productQuerySchema } from "../../validations/product.validation.js";
+import {
+  productAvailabilityQuerySchema,
+  productQuerySchema,
+} from "../../validations/product.validation.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import cloudinary from "../../config/cloudinary.config.js";
+import redis from "../../config/redis.config.js";
+
+const RECENTLY_VISITED_LIMIT = 5;
+const RECENTLY_VISITED_BUFFER_LIMIT = 50;
+
+const getRecentlyVisitedRedisKey = (userId: number) =>
+  `recently_visited_products:${userId}`;
 
 const addProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
@@ -256,7 +261,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
         },
         is_active: true,
         variants: {
-          ...(isPLP ? { take: 1 } :  {}),
+          ...(isPLP ? { take: 1 } : {}),
           ...(!isPLP ? {} : { orderBy: { discounted_price: "asc" } }),
           select: {
             color: true,
@@ -275,7 +280,6 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
             id: true,
           },
         },
-
       },
     }),
   ]);
@@ -356,6 +360,126 @@ const getProductWithoutVariants = asyncHandler(
           "Products retrieved successfully",
           products,
           totalCount,
+        ),
+      );
+  },
+);
+
+const getTopRatedProducts = asyncHandler(
+  async (req: Request, res: Response) => {
+    const parsedQuery = productQuerySchema.parse(req.query);
+    const page = Math.max(Number(parsedQuery.page ?? 1), 1);
+    const limit = Math.min(Math.max(Number(parsedQuery.limit ?? 10), 1), 50);
+    const skip = (page - 1) * limit;
+
+    const topRatedReviewGroups = await prisma.review.groupBy({
+      by: ["product_id"],
+      _avg: {
+        rating: true,
+      },
+      _count: {
+        _all: true,
+      },
+      orderBy: {
+        _avg: {
+          rating: "desc",
+        },
+      },
+      skip,
+      take: limit,
+    });
+
+    const productIdsInOrder = topRatedReviewGroups.map(
+      (group) => group.product_id,
+    );
+
+    if (productIdsInOrder.length === 0) {
+      return res
+        .status(200)
+        .json(new ApiResponse("Top rated products retrieved successfully", []));
+    }
+
+    const products = await prisma.product.findMany({
+      where: {
+        id: {
+          in: productIdsInOrder,
+        },
+        is_active: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        brand: true,
+        category: {
+          select: {
+            name: true,
+            slug: true,
+          },
+        },
+        variants: {
+          take: 1,
+          orderBy: {
+            discounted_price: "asc",
+          },
+          select: {
+            id: true,
+            discounted_price: true,
+            original_price: true,
+            stock: true,
+            sku: true,
+            images: {
+              take: 1,
+              select: {
+                id: true,
+                image_url: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
+    const ratingMap = new Map(
+      topRatedReviewGroups.map((group) => [
+        group.product_id,
+        {
+          average_rating: Number((group._avg.rating ?? 0).toFixed(2)),
+          total_reviews: group._count._all,
+        },
+      ]),
+    );
+
+    const topRatedProducts = productIdsInOrder
+      .map((productId) => {
+        const product = productMap.get(productId);
+
+        if (!product) {
+          return null;
+        }
+
+        return {
+          ...product,
+          ...(ratingMap.get(productId) ?? {
+            average_rating: 0,
+            total_reviews: 0,
+          }),
+        };
+      })
+      .filter((product): product is NonNullable<typeof product> =>
+        Boolean(product),
+      );
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Top rated products retrieved successfully",
+          topRatedProducts,
         ),
       );
   },
@@ -657,24 +781,34 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
 
   const selectedVariant =
     product.variants.find(
-      (v) =>
-        (!color || v.color === color) &&
-        (!size || v.size === size),
-    ) ?? product.variants[0]; 
+      (v) => (!color || v.color === color) && (!size || v.size === size),
+    ) ?? product.variants[0];
+
+  const productCouponApplicability: Prisma.CouponWhereInput = {
+    OR: [
+      { products: { none: {} } },
+      { products: { some: { slug: slug as string } } },
+    ],
+  };
+
+  const couponAudienceFilter: Prisma.CouponWhereInput = userId
+    ? {
+        OR: [{ is_global: true }, { users: { some: { id: userId } } }],
+      }
+    : {
+        is_global: true,
+      };
 
   const coupons = await prisma.coupon.findMany({
     where: {
       is_active: true,
       start_date: { lte: new Date() },
       end_date: { gte: new Date() },
-      OR: [
-        { is_global: true },
-        { products: { some: { slug: slug as string } } },
-        ...(userId ? [{ users: { some: { id: userId } } }] : []),
-      ],
+      AND: [couponAudienceFilter, productCouponApplicability],
     },
     select: {
       code: true,
+      id: true,
       discount_type: true,
       discount_value: true,
       max_discount: true,
@@ -693,6 +827,184 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
     }),
   );
 });
+
+const checkProductAvailabilityByPincode = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const { pincode } = productAvailabilityQuerySchema.parse(req.query);
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, slug: true },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    const is_available =
+      (await prisma.productPincode.count({
+        where: {
+          product_id: product.id,
+          pincode,
+        },
+      })) > 0;
+
+    return res.status(200).json(
+      new ApiResponse("Product availability fetched successfully", {
+        slug: product.slug,
+        pincode,
+        is_available,
+      }),
+    );
+  },
+);
+
+const trackRecentlyVisitedProduct = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user!.user_id;
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    const redisKey = getRecentlyVisitedRedisKey(userId);
+    const now = Date.now();
+
+    try {
+      await redis.zadd(redisKey, `${now}`, slug);
+      await redis.zremrangebyrank(
+        redisKey,
+        0,
+        -(RECENTLY_VISITED_BUFFER_LIMIT + 1),
+      );
+    } catch (error) {
+      console.error(
+        "Failed to track recently visited product in Redis:",
+        error,
+      );
+    }
+
+    return res.status(200).json(
+      new ApiResponse("Recently visited product tracked successfully", {
+        slug,
+      }),
+    );
+  },
+);
+
+const getRecentlyVisitedProducts = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user!.user_id;
+    const redisKey = getRecentlyVisitedRedisKey(userId);
+
+    let slugs: string[] = [];
+
+    try {
+      slugs = await redis.zrevrange(redisKey, 0, RECENTLY_VISITED_LIMIT - 1);
+    } catch (error) {
+      console.error(
+        "Failed to fetch recently visited products from Redis:",
+        error,
+      );
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            "Recently visited products retrieved successfully",
+            [],
+          ),
+        );
+    }
+
+    if (slugs.length === 0) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            "Recently visited products retrieved successfully",
+            [],
+          ),
+        );
+    }
+
+    const products = await prisma.product.findMany({
+      where: {
+        slug: {
+          in: slugs,
+        },
+        is_active: true,
+      },
+      select: {
+        name: true,
+        slug: true,
+        description: true,
+        brand: true,
+        category: {
+          select: {
+            name: true,
+            slug: true,
+          },
+        },
+        variants: {
+          take: 1,
+          orderBy: {
+            discounted_price: "asc",
+          },
+          select: {
+            discounted_price: true,
+            original_price: true,
+            stock: true,
+            sku: true,
+            images: {
+              take: 1,
+              select: {
+                image_url: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const productMap = new Map(
+      products.map((product) => [product.slug, product]),
+    );
+    const orderedProducts = slugs
+      .map((slug) => productMap.get(slug))
+      .filter((product): product is NonNullable<typeof product> =>
+        Boolean(product),
+      );
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Recently visited products retrieved successfully",
+          orderedProducts,
+        ),
+      );
+  },
+);
 
 const getProductsByCategory = asyncHandler(
   async (req: Request, res: Response) => {
@@ -794,7 +1106,11 @@ const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
 
 export {
   addProduct,
+  getTopRatedProducts,
   getProductBySlug,
+  checkProductAvailabilityByPincode,
+  trackRecentlyVisitedProduct,
+  getRecentlyVisitedProducts,
   getProductsByCategory,
   getAllProducts,
   getProductWithoutVariants,

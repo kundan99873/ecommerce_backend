@@ -11,6 +11,6 @@ import { addCouponSchema } from "../validations/coupon.validation.js";
 const router = express.Router();
 
 router.route("/").get(getCoupons).post(validate(addCouponSchema), addCoupon);
-router.route("/:id").patch(updateCoupon).delete(deleteCoupon);
+router.route("/:code").patch(updateCoupon).delete(deleteCoupon);
 
 export default router;

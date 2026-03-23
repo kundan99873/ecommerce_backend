@@ -5,68 +5,58 @@ import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 
-const getProductCouponMap = async (productIds: number[]) => {
-  if (productIds.length === 0) {
-    return new Map<number, number>();
-  }
-
-  const now = new Date();
-
-  const coupons = await prisma.coupon.findMany({
-    where: {
-      is_active: true,
-      start_date: { lte: now },
-      end_date: { gte: now },
-      products: {
-        some: {
-          id: { in: productIds },
-        },
-      },
-    },
-    orderBy: [{ updated_at: "desc" }, { id: "desc" }],
+const syncCartCoupon = async (cartId: number) => {
+  const cart = await prisma.cart.findUnique({
+    where: { id: cartId },
     select: {
       id: true,
-      products: {
-        where: {
-          id: { in: productIds },
-        },
+      user_id: true,
+      coupon_id: true,
+      coupon: {
         select: {
           id: true,
+          start_date: true,
+          end_date: true,
+          min_purchase: true,
+          max_uses: true,
+          max_uses_per_user: true,
+          is_global: true,
+          is_active: true,
+          products: {
+            select: {
+              id: true,
+            },
+          },
+          users: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      },
+      items: {
+        select: {
+          quantity: true,
+          price: true,
+          product_variant: {
+            select: {
+              product_id: true,
+            },
+          },
         },
       },
     },
   });
 
-  const productCouponMap = new Map<number, number>();
-
-  for (const coupon of coupons) {
-    for (const product of coupon.products) {
-      if (!productCouponMap.has(product.id)) {
-        productCouponMap.set(product.id, coupon.id);
-      }
-    }
+  if (!cart) {
+    return null;
   }
 
-  return productCouponMap;
-};
-
-const syncCartCoupon = async (cartId: number) => {
-  const cartItems = await prisma.cartItem.findMany({
-    where: { cart_id: cartId },
-    select: {
-      product_variant: {
-        select: {
-          product_id: true,
-        },
-      },
-    },
-  });
-
-  const productIds = Array.from(
-    new Set(cartItems.map((item) => item.product_variant.product_id)),
+  const cartProductIds = Array.from(
+    new Set(cart.items.map((item) => item.product_variant.product_id)),
   );
 
-  if (productIds.length === 0) {
+  if (cartProductIds.length === 0) {
     await prisma.cart.update({
       where: { id: cartId },
       data: { coupon_id: null },
@@ -74,22 +64,29 @@ const syncCartCoupon = async (cartId: number) => {
     return null;
   }
 
-  const productCouponMap = await getProductCouponMap(productIds);
-  const uniqueCouponIds = new Set(
-    productIds
-      .map((productId) => productCouponMap.get(productId) ?? null)
-      .filter((couponId): couponId is number => couponId !== null),
-  );
-
-  if (uniqueCouponIds.size > 1) {
-    throw new ApiError(
-      400,
-      "Cart has multiple coupons applied. Keep products under one coupon only.",
-    );
+  if (!cart.coupon_id || !cart.coupon || !cart.coupon.is_active) {
+    if (cart.coupon_id) {
+      await prisma.cart.update({
+        where: { id: cartId },
+        data: { coupon_id: null },
+      });
+    }
+    return null;
   }
 
-  const couponId =
-    uniqueCouponIds.size === 1 ? Array.from(uniqueCouponIds)[0]! : null;
+  const cartTotal = cart.items.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0,
+  );
+
+  const isCouponAvailable = await evaluateCouponForCart({
+    coupon: cart.coupon,
+    userId: cart.user_id,
+    cartProductIds,
+    cartTotal,
+  });
+
+  const couponId = isCouponAvailable ? cart.coupon_id : null;
 
   await prisma.cart.update({
     where: { id: cartId },
@@ -209,7 +206,7 @@ const buildCartPayload = (cart: Awaited<ReturnType<typeof getCartDetails>>) => {
   return {
     id: cart.id,
     user_id: cart.user_id,
-    coupon_id: cart.coupon_id,
+    coupon_code: cart.coupon?.code ?? null,
     used_coupon: cart.coupon,
     items,
     total_price: totalPrice,
@@ -217,6 +214,49 @@ const buildCartPayload = (cart: Awaited<ReturnType<typeof getCartDetails>>) => {
     created_at: cart.created_at,
     updated_at: cart.updated_at,
   };
+};
+
+const calculateCouponDiscountAmount = ({
+  coupon,
+  subtotal,
+}: {
+  coupon:
+    | {
+        discount_type: string;
+        discount_value: number;
+        max_discount: number | null;
+        min_purchase: number | null;
+        start_date: Date;
+        end_date: Date;
+        is_active: boolean;
+      }
+    | null
+    | undefined;
+  subtotal: number;
+}) => {
+  if (!coupon || !coupon.is_active || subtotal <= 0) {
+    return 0;
+  }
+
+  const now = new Date();
+  if (now < coupon.start_date || now > coupon.end_date) {
+    return 0;
+  }
+
+  if (coupon.min_purchase != null && subtotal < coupon.min_purchase) {
+    return 0;
+  }
+
+  let discountAmount =
+    coupon.discount_type === "PERCENTAGE"
+      ? Math.floor((subtotal * coupon.discount_value) / 100)
+      : coupon.discount_value;
+
+  if (coupon.max_discount != null) {
+    discountAmount = Math.min(discountAmount, coupon.max_discount);
+  }
+
+  return Math.max(0, Math.min(discountAmount, subtotal));
 };
 
 const evaluateCouponForCart = async ({
@@ -291,15 +331,22 @@ const evaluateCouponForCart = async ({
 };
 
 const addProductToCart = asyncHandler(async (req: Request, res: Response) => {
-  const { slug: sku, quantity, coupon_id: rawCouponId } = req.body as cartProduct;
+  const {
+    slug: sku,
+    quantity,
+    coupon_code: rawCouponCode,
+    couponCode: rawCouponCodeAlias,
+  } = req.body as cartProduct;
 
-  const requestedCouponId =
-    rawCouponId == null
+  const rawRequestedCouponCode = rawCouponCode ?? rawCouponCodeAlias;
+
+  const requestedCouponCode =
+    rawRequestedCouponCode == null
       ? null
-      : Number.isInteger(rawCouponId) && Number(rawCouponId) > 0
-        ? Number(rawCouponId)
+      : rawRequestedCouponCode.trim().length > 0
+        ? rawRequestedCouponCode.trim().toUpperCase()
         : (() => {
-            throw new ApiError(400, "coupon_id must be a positive integer");
+            throw new ApiError(400, "coupon_code must be a non-empty string");
           })();
 
   const userId = req.user!.user_id;
@@ -340,6 +387,8 @@ const addProductToCart = asyncHandler(async (req: Request, res: Response) => {
       cart_id: cart.id,
     },
     select: {
+      quantity: true,
+      price: true,
       product_variant: {
         select: {
           product_id: true,
@@ -355,42 +404,59 @@ const addProductToCart = asyncHandler(async (req: Request, res: Response) => {
   const allProductIds = Array.from(
     new Set([variant.product_id, ...cartProductIds]),
   );
-  const productCouponMap = await getProductCouponMap(allProductIds);
+  let cartCouponId = cart.coupon_id ?? null;
 
-  const incomingCouponId = productCouponMap.get(variant.product_id) ?? null;
-  const existingCouponIds = new Set(
-    cartProductIds
-      .map((productId) => productCouponMap.get(productId) ?? null)
-      .filter((couponId): couponId is number => couponId !== null),
-  );
+  if (requestedCouponCode !== null) {
+    const requestedCoupon = await prisma.coupon.findUnique({
+      where: {
+        code: requestedCouponCode,
+      },
+      select: {
+        id: true,
+        start_date: true,
+        end_date: true,
+        min_purchase: true,
+        max_uses: true,
+        max_uses_per_user: true,
+        is_global: true,
+        is_active: true,
+        products: {
+          select: {
+            id: true,
+          },
+        },
+        users: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
 
-  if (existingCouponIds.size > 1) {
-    throw new ApiError(
-      400,
-      "Cart has multiple coupons applied. Keep products under one coupon only.",
-    );
-  }
+    if (!requestedCoupon || !requestedCoupon.is_active) {
+      throw new ApiError(404, "Requested coupon not found or inactive");
+    }
 
-  if (
-    incomingCouponId !== null &&
-    existingCouponIds.size === 1 &&
-    !existingCouponIds.has(incomingCouponId)
-  ) {
-    throw new ApiError(
-      400,
-      "Only one coupon can be applied per cart. Remove products with other coupon first.",
-    );
-  }
+    const projectedCartTotal =
+      existingItems.reduce((sum, item) => sum + item.price * item.quantity, 0) +
+      variant.discounted_price * quantity;
 
-  const existingCouponId =
-    existingCouponIds.size === 1 ? Array.from(existingCouponIds)[0]! : null;
-  const cartCouponId = existingCouponId ?? incomingCouponId;
+    const isRequestedCouponAvailable = await evaluateCouponForCart({
+      coupon: requestedCoupon,
+      userId,
+      cartProductIds: allProductIds,
+      cartTotal: projectedCartTotal,
+    });
 
-  if (requestedCouponId !== null && requestedCouponId !== cartCouponId) {
-    throw new ApiError(
-      400,
-      "Provided coupon_id is not applicable for current cart products",
-    );
+    if (!isRequestedCouponAvailable) {
+      throw new ApiError(
+        400,
+        "Provided coupon_code is not applicable for current cart products",
+      );
+    }
+
+    // Keep a single coupon in cart while allowing users to replace it.
+    cartCouponId = requestedCoupon.id;
   }
 
   if ((cart as { coupon_id?: number | null }).coupon_id !== cartCouponId) {
@@ -446,7 +512,54 @@ const addProductToCart = asyncHandler(async (req: Request, res: Response) => {
 const getCartProducts = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
 
-  const cart = await getCartDetails(userId);
+  const cart = await prisma.cart.findUnique({
+    where: {
+      user_id: userId,
+    },
+    select: {
+      coupon_id: true,
+      coupon: {
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          discount_type: true,
+          discount_value: true,
+          max_discount: true,
+          min_purchase: true,
+          start_date: true,
+          end_date: true,
+          is_active: true,
+        },
+      },
+      items: {
+        select: {
+          quantity: true,
+          price: true,
+          product_variant: {
+            select: {
+              sku: true,
+              stock: true,
+              color: true,
+              size: true,
+              product: {
+                select: {
+                  name: true,
+                  slug: true,
+                },
+              },
+              images: {
+                take: 1,
+                select: {
+                  image_url: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
   if (!cart) {
     return res.status(200).json(
@@ -454,7 +567,7 @@ const getCartProducts = asyncHandler(async (req: Request, res: Response) => {
         items: [],
         total_items: 0,
         total_price: 0,
-        coupon_id: null,
+        coupon_code: null,
         used_coupon: null,
       }),
     );
@@ -482,12 +595,18 @@ const getCartProducts = asyncHandler(async (req: Request, res: Response) => {
     0,
   );
 
+  const couponDiscountAmount = calculateCouponDiscountAmount({
+    coupon: cart.coupon,
+    subtotal: cartSubtotal,
+  });
+
   return res.status(200).json(
     new ApiResponse("Cart items retrieved successfully", {
       items: formattedItems,
       total_items: formattedItems.length,
       total_price: cartSubtotal,
-      coupon_id: cart.coupon_id,
+      coupon_discount_amount: couponDiscountAmount,
+      final_price: Math.max(cartSubtotal - couponDiscountAmount, 0),
       used_coupon: cart.coupon,
     }),
   );
@@ -518,7 +637,7 @@ const getUserCartCoupons = asyncHandler(async (req: Request, res: Response) => {
       OR: [
         { is_global: true },
         { users: { some: { id: userId } } },
-        { products: { some: {} } },
+        { users: { none: {} } },
       ],
     },
     orderBy: { updated_at: "desc" },
@@ -583,11 +702,118 @@ const getUserCartCoupons = asyncHandler(async (req: Request, res: Response) => {
     );
 });
 
+const viewAllAvailableCartCoupons = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user!.user_id;
+
+    const cart = await getCartDetails(userId);
+
+    if (!cart || cart.items.length === 0) {
+      return res
+        .status(200)
+        .json(new ApiResponse("Available coupons retrieved successfully", []));
+    }
+
+    const cartProductIds = Array.from(
+      new Set(cart.items.map((item) => item.product_variant.product_id)),
+    );
+    const cartTotal = cart.items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0,
+    );
+
+    const coupons = await prisma.coupon.findMany({
+      where: {
+        is_active: true,
+        OR: [
+          { is_global: true },
+          { users: { some: { id: userId } } },
+          { users: { none: {} } },
+        ],
+      },
+      orderBy: { updated_at: "desc" },
+      select: {
+        id: true,
+        code: true,
+        description: true,
+        discount_type: true,
+        discount_value: true,
+        max_discount: true,
+        min_purchase: true,
+        start_date: true,
+        end_date: true,
+        max_uses: true,
+        max_uses_per_user: true,
+        is_global: true,
+        products: {
+          select: {
+            id: true,
+          },
+        },
+        users: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    const availableCoupons = (
+      await Promise.all(
+        coupons.map(async (coupon) => {
+          const isAvailable = await evaluateCouponForCart({
+            coupon,
+            userId,
+            cartProductIds,
+            cartTotal,
+          });
+
+          if (!isAvailable) {
+            return null;
+          }
+
+          return {
+            id: coupon.id,
+            code: coupon.code,
+            description: coupon.description,
+            discount_type: coupon.discount_type,
+            discount_value: coupon.discount_value,
+            max_discount: coupon.max_discount,
+            min_purchase: coupon.min_purchase,
+            start_date: coupon.start_date,
+            end_date: coupon.end_date,
+            max_uses: coupon.max_uses,
+            max_uses_per_user: coupon.max_uses_per_user,
+            is_global: coupon.is_global,
+            is_applied: cart.coupon_id === coupon.id,
+          };
+        }),
+      )
+    ).filter((coupon): coupon is NonNullable<typeof coupon> => coupon !== null);
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Available coupons retrieved successfully",
+          availableCoupons,
+        ),
+      );
+  },
+);
+
 const addCouponToCart = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
-  const { coupon_code } = req.body as { coupon_code?: string };
+  const { coupon_code: rawCouponCode, couponCode: rawCouponCodeAlias } =
+    req.body as {
+      coupon_code?: string;
+      couponCode?: string;
+    };
+  const couponCode = (rawCouponCode ?? rawCouponCodeAlias)
+    ?.trim()
+    .toUpperCase();
 
-  if (!coupon_code) {
+  if (!couponCode) {
     throw new ApiError(400, "coupon_code is required");
   }
 
@@ -597,10 +823,8 @@ const addCouponToCart = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(400, "Cart is empty");
   }
 
-  const normalizedCouponCode = coupon_code.trim().toUpperCase();
-
   const coupon = await prisma.coupon.findUnique({
-    where: { code: normalizedCouponCode },
+    where: { code: couponCode },
     select: {
       id: true,
       code: true,
@@ -628,13 +852,6 @@ const addCouponToCart = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "Coupon not found or inactive");
   }
 
-  if (cart.coupon_id && cart.coupon_id !== coupon.id) {
-    throw new ApiError(
-      400,
-      "A different coupon is already applied to this cart",
-    );
-  }
-
   const cartProductIds = Array.from(
     new Set(cart.items.map((item) => item.product_variant.product_id)),
   );
@@ -654,6 +871,17 @@ const addCouponToCart = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(400, "Coupon is not available for current cart items");
   }
 
+  if (cart.coupon_id === coupon.id) {
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Coupon already applied to cart",
+          buildCartPayload(cart),
+        ),
+      );
+  }
+
   await prisma.cart.update({
     where: { id: cart.id },
     data: {
@@ -668,6 +896,44 @@ const addCouponToCart = asyncHandler(async (req: Request, res: Response) => {
     .status(200)
     .json(new ApiResponse("Coupon applied to cart successfully", cartPayload));
 });
+
+const removeCouponFromCart = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user!.user_id;
+
+    const cart = await getCartDetails(userId);
+
+    if (!cart) {
+      throw new ApiError(404, "Cart not found");
+    }
+
+    if (!cart.coupon_id) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse("No coupon applied to cart", buildCartPayload(cart)),
+        );
+    }
+
+    await prisma.cart.update({
+      where: { id: cart.id },
+      data: {
+        coupon_id: null,
+      },
+    });
+
+    const updatedCart = await getCartDetails(userId);
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          "Coupon removed from cart successfully",
+          buildCartPayload(updatedCart),
+        ),
+      );
+  },
+);
 const updateCartItem = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
     const userId = req.user!.user_id;
@@ -728,6 +994,8 @@ const updateCartItem = asyncHandler(
       where: { id: cartItem.id },
       data: { quantity },
     });
+
+    await syncCartCoupon(cart.id);
 
     return res
       .status(200)
@@ -818,7 +1086,9 @@ const clearCart = asyncHandler(async (req: Request, res: Response) => {
 export {
   addProductToCart,
   addCouponToCart,
+  removeCouponFromCart,
   getUserCartCoupons,
+  viewAllAvailableCartCoupons,
   getCartProducts,
   updateCartItem,
   deleteProductFromCart,

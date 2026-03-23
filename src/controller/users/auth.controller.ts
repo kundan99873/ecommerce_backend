@@ -16,7 +16,48 @@ import {
 import generateTokens from "./generateTokens.js";
 import { uploadMediaToCloudinary } from "../../helper/uploadFileToCloudinary.js";
 import type { UploadApiResponse } from "cloudinary";
+import { sendTemplateEmail } from "../../helper/sendMail.js";
+import {
+  AUTH_EMAIL_TEMPLATES,
+  type AuthEmailTemplateKey,
+} from "../../helper/authEmailTemplates.js";
+import { mailDefaults } from "../../config/nodemailer.config.js";
 // import { uploadMediaToCloudinary } from "../helper/uploadFileToCloudinary.js";
+
+const frontendBaseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+const verifyEmailPath = process.env.VERIFY_EMAIL_PATH || "/verify-email";
+const resetPasswordPath = process.env.RESET_PASSWORD_PATH || "/reset-password";
+
+const sendAuthTemplateEmail = async (
+  to: string,
+  templateKey: AuthEmailTemplateKey,
+  data: Record<string, unknown>,
+) => {
+  const templateConfig = AUTH_EMAIL_TEMPLATES[templateKey];
+
+  const subject = templateConfig.subject.replace(
+    "{{appName}}",
+    mailDefaults.appName,
+  );
+
+  const result = await sendTemplateEmail({
+    to,
+    subject,
+    template: templateConfig.template,
+    data: {
+      appName: mailDefaults.appName,
+      supportEmail: mailDefaults.supportEmail,
+      ...data,
+    },
+  });
+
+  if (!result.success) {
+    console.error(
+      `Failed to send ${templateKey} email to ${to}:`,
+      result.error,
+    );
+  }
+};
 
 const registerUser = asyncHandler(async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
@@ -62,6 +103,12 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  await sendAuthTemplateEmail(user.email, "verifyAccount", {
+    userName: user.name,
+    verifyUrl: `${frontendBaseUrl}${verifyEmailPath}?token=${verifyToken}`,
+    expiresInMinutes: 10,
+  });
+
   return res
     .status(201)
     .json(new ApiResponse("User registered successfully", user));
@@ -74,6 +121,7 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
     where: { email },
     select: {
       id: true,
+      name: true,
       password: true,
       is_email_verified: true,
       is_active: true,
@@ -102,12 +150,19 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) {
     if (user.failed_login_attempts >= 2) {
+      const lockedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
       await prisma.user.update({
         where: { id: user.id },
         data: {
           failed_login_attempts: 0,
-          locked_until: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          locked_until: lockedUntil,
         },
+      });
+
+      await sendAuthTemplateEmail(email, "accountLocked", {
+        userName: user.name || "User",
+        lockedUntil: lockedUntil.toISOString(),
       });
     } else {
       await prisma.user.update({
@@ -130,17 +185,28 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
       },
     });
 
+    await sendAuthTemplateEmail(email, "verifyAccount", {
+      userName: user.name || "User",
+      verifyUrl: `${frontendBaseUrl}${verifyEmailPath}?token=${verifyToken}`,
+      expiresInMinutes: 10,
+    });
+
     throw new ApiError(400, "Please verify your email before logging in");
   }
 
-  const devices = await prisma.userSession.findMany({
+  const activeDeviceCount = await prisma.userSession.count({
     where: {
       user_id: user.id,
       is_revoked: false,
     },
   });
 
-  if(devices.length === 3) return res.status(200).json(new ApiResponse("Already Logged in 3 devices", devices))
+  if (activeDeviceCount >= 3) {
+    throw new ApiError(
+      403,
+      "You are already logged in on 3 devices. Please log out from any device and try again.",
+    );
+  }
 
   const deviceId = crypto.randomBytes(32).toString("hex");
 
@@ -152,7 +218,7 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
     remoteAddress ??
     "";
 
-  const ip_address = String(rawIp).split(",")[0].trim() || "unknown";
+  const ip_address = (String(rawIp).split(",").at(0) ?? "").trim() || "unknown";
 
   const user_agent = req.headers["user-agent"] ?? "unknown";
 
@@ -182,6 +248,14 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  await sendAuthTemplateEmail(email, "newLoginAlert", {
+    userName: user.name || "User",
+    loginTime: new Date().toISOString(),
+    deviceName: String(user_agent),
+    ipAddress: ip_address,
+    location: "Unknown",
+  });
+
   return res
     .cookie("accessToken", accessToken, accessTokenCookieOptions)
     .cookie("refreshToken", refreshToken, refreshTokenCookieOptions)
@@ -204,15 +278,21 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
   if (!payload || !payload.email)
     throw new ApiError(400, "Invalid Google token");
 
+  let isNewGoogleUser = false;
+
   let user = await prisma.user.findUnique({
     where: { email: payload.email },
     select: {
       id: true,
       role_id: true,
+      name: true,
+      email: true,
     },
   });
 
   if (!user) {
+    isNewGoogleUser = true;
+
     user = await prisma.user.create({
       data: {
         name: payload.name || "Google User",
@@ -225,6 +305,8 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
       select: {
         id: true,
         role_id: true,
+        name: true,
+        email: true,
       },
     });
   } else {
@@ -237,7 +319,44 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
+  const activeDeviceCount = await prisma.userSession.count({
+    where: {
+      user_id: user.id,
+      is_revoked: false,
+    },
+  });
+
+  if (activeDeviceCount >= 3) {
+    throw new ApiError(
+      403,
+      "You are already logged in on 3 devices. Please log out from any device and try again.",
+    );
+  }
+
   const deviceId = crypto.randomBytes(32).toString("hex");
+
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const remoteAddress = req.socket?.remoteAddress;
+
+  const rawIp =
+    (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor) ??
+    remoteAddress ??
+    "";
+
+  const ip_address = (String(rawIp).split(",").at(0) ?? "").trim() || "unknown";
+  const user_agent = req.headers["user-agent"] ?? "unknown";
+
+  await prisma.userSession.create({
+    data: {
+      device_id: deviceId,
+      device_name: "",
+      ip_address,
+      user_id: user.id,
+      last_used_at: new Date(),
+      user_agent,
+    },
+  });
+
   const { accessToken, refreshToken } = generateTokens({
     user_id: user.id,
     role_id: user.role_id,
@@ -253,6 +372,20 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  if (isNewGoogleUser) {
+    await sendAuthTemplateEmail(user.email, "registrationSuccess", {
+      userName: user.name || "User",
+    });
+  }
+
+  await sendAuthTemplateEmail(user.email, "newLoginAlert", {
+    userName: user.name || "User",
+    loginTime: new Date().toISOString(),
+    deviceName: String(user_agent),
+    ipAddress: ip_address,
+    location: "Unknown",
+  });
+
   return res
     .cookie("accessToken", accessToken, accessTokenCookieOptions)
     .cookie("refreshToken", refreshToken, refreshTokenCookieOptions)
@@ -261,7 +394,19 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const logoutUser = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.user_id;
+  const { user_id, device_id } = req.user as TokenPayload;
+
+  await prisma.userSession.updateMany({
+    where: {
+      user_id,
+      device_id,
+      is_revoked: false,
+    },
+    data: {
+      is_revoked: true,
+      last_used_at: new Date(),
+    },
+  });
 
   return res
     .clearCookie("accessToken", clearCookieOptions)
@@ -269,6 +414,117 @@ const logoutUser = asyncHandler(async (req: Request, res: Response) => {
     .status(200)
     .json(new ApiResponse("User logged out successfully"));
 });
+
+const getActiveSessions = asyncHandler(async (req: Request, res: Response) => {
+  const { user_id, device_id } = req.user as TokenPayload;
+
+  const sessions = await prisma.userSession.findMany({
+    where: {
+      user_id,
+      is_revoked: false,
+    },
+    orderBy: {
+      last_used_at: "desc",
+    },
+    select: {
+      id: true,
+      device_id: true,
+      device_name: true,
+      user_agent: true,
+      ip_address: true,
+      created_at: true,
+      last_used_at: true,
+    },
+  });
+
+  return res.status(200).json(
+    new ApiResponse(
+      "Active sessions fetched successfully",
+      sessions.map((session) => ({
+        ...session,
+        is_current: session.device_id === device_id,
+      })),
+    ),
+  );
+});
+
+const revokeSession = asyncHandler(async (req: Request, res: Response) => {
+  const { user_id, device_id } = req.user as TokenPayload;
+  const rawSessionId = req.params.sessionId;
+  const sessionId = Array.isArray(rawSessionId)
+    ? rawSessionId[0]
+    : rawSessionId;
+
+  if (!sessionId) {
+    throw new ApiError(400, "Session id is required");
+  }
+
+  const session = await prisma.userSession.findFirst({
+    where: {
+      id: sessionId,
+      user_id,
+      is_revoked: false,
+    },
+    select: {
+      id: true,
+      device_id: true,
+    },
+  });
+
+  if (!session) {
+    throw new ApiError(404, "Session not found");
+  }
+
+  await prisma.userSession.update({
+    where: {
+      id: session.id,
+    },
+    data: {
+      is_revoked: true,
+      last_used_at: new Date(),
+    },
+  });
+
+  const isCurrentSession = session.device_id === device_id;
+
+  if (isCurrentSession) {
+    res
+      .clearCookie("accessToken", clearCookieOptions)
+      .clearCookie("refreshToken", clearCookieOptions);
+  }
+
+  return res.status(200).json(
+    new ApiResponse("Session logged out successfully", {
+      is_current: isCurrentSession,
+    }),
+  );
+});
+
+const logoutOtherSessions = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { user_id, device_id } = req.user as TokenPayload;
+
+    const result = await prisma.userSession.updateMany({
+      where: {
+        user_id,
+        is_revoked: false,
+        device_id: {
+          not: device_id,
+        },
+      },
+      data: {
+        is_revoked: true,
+        last_used_at: new Date(),
+      },
+    });
+
+    return res.status(200).json(
+      new ApiResponse("Logged out from other devices successfully", {
+        logged_out_count: result.count,
+      }),
+    );
+  },
+);
 
 const refreshToken = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = req.cookies?.refreshToken;
@@ -305,7 +561,7 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
     generateTokens({
       user_id: user.id,
       role_id: user.role_id,
-      device_id: decoded?.device_id || ""
+      device_id: decoded?.device_id || "",
     });
   // await prisma.user.update({
   //   where: { id: user.id },
@@ -320,7 +576,11 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const isLogedInUser = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.user_id;
+  if (!req.user?.user_id) {
+    throw new ApiError(404, "User is not logged in");
+  }
+
+  const userId = req.user.user_id;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -337,14 +597,16 @@ const isLogedInUser = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, "User is not logged in");
   }
 
-  return res
-    .status(200)
-    .json(
-      new ApiResponse("User is logged in", { ...user, role: user.role?.name }),
-    );
+  return res.status(200).json(
+    new ApiResponse("User is logged in", {
+      isLoggedIn: true,
+      ...user,
+      role: user.role?.name,
+    }),
+  );
 });
 
 const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
@@ -374,6 +636,10 @@ const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  await sendAuthTemplateEmail(user.email, "registrationSuccess", {
+    userName: user.name || "User",
+  });
+
   return res.status(200).json(new ApiResponse("Email verified successfully"));
 });
 
@@ -383,7 +649,11 @@ const changePassword = asyncHandler(async (req: Request, res: Response) => {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { password: true },
+    select: {
+      password: true,
+      email: true,
+      name: true,
+    },
   });
 
   if (!user) {
@@ -410,6 +680,10 @@ const changePassword = asyncHandler(async (req: Request, res: Response) => {
     data: { password: hashedNewPassword },
   });
 
+  await sendAuthTemplateEmail(user.email, "passwordResetSuccess", {
+    userName: user.name || "User",
+  });
+
   return res.status(200).json(new ApiResponse("Password changed successfully"));
 });
 
@@ -433,6 +707,12 @@ const resetPassword = asyncHandler(async (req: Request, res: Response) => {
       forgot_password_token: resetToken,
       forgot_password_expires: resetTokenExpiry,
     },
+  });
+
+  await sendAuthTemplateEmail(user.email, "forgotPassword", {
+    userName: user.name || "User",
+    resetUrl: `${frontendBaseUrl}${resetPasswordPath}?token=${resetToken}`,
+    expiresInMinutes: 10,
   });
 
   return res.status(200).json(
@@ -471,6 +751,10 @@ const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  await sendAuthTemplateEmail(user.email, "passwordResetSuccess", {
+    userName: user.name || "User",
+  });
+
   return res.status(200).json(new ApiResponse("Password reset successfully"));
 });
 
@@ -479,6 +763,9 @@ export {
   loginUser,
   googleLogin,
   logoutUser,
+  getActiveSessions,
+  revokeSession,
+  logoutOtherSessions,
   isLogedInUser,
   refreshToken,
   verifyEmail,

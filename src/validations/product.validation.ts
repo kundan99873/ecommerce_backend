@@ -8,4 +8,11 @@ const productQuerySchema = z.object({
   is_product_listing_page: z.string().optional(),
 });
 
-export { productQuerySchema };
+const productAvailabilityQuerySchema = z.object({
+  pincode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Valid 6 digit pincode is required"),
+});
+
+export { productQuerySchema, productAvailabilityQuerySchema };

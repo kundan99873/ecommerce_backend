@@ -11,6 +11,7 @@ import heroSlideRoutes from "./routes/heroSlide.route.js";
 import couponRoutes from "./routes/coupon.routes.js";
 import cartWishliadtRoutes from "./routes/cartWishlist.route.js";
 import orderRoutes from "./routes/order.route.js";
+import landingRoutes from "./routes/landing.route.js";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -22,7 +23,7 @@ app.use(compression());
 
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (_, res) => res.send("Welcome to the E-commerce API"));
+app.use("/", landingRoutes);
 app.get("/test", (req, res) => {
   const user_agent = req.headers["user-agent"] || "";
   const ip_address = req.headers["x-forwarded-for"] || req.socket.remoteAddress;

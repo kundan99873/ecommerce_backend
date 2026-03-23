@@ -1,6 +1,6 @@
 export interface cartProduct {
   slug: string;
   quantity: number;
-  coupon_id?: number;
-  couponId?: number;
+  coupon_code?: string;
+  couponCode?: string;
 }

@@ -21,8 +21,12 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
     coupon_code?: string;
     payment_method?: string;
   };
+  const normalizedCouponCode = coupon_code?.trim().toUpperCase();
 
   if (!address_id) throw new ApiError(400, "Address ID is required");
+  if (coupon_code !== undefined && !normalizedCouponCode) {
+    throw new ApiError(400, "coupon_code must be a non-empty string");
+  }
 
   const address = await prisma.address.findFirst({
     where: { id: Number(address_id), user_id: userId, is_active: true },
@@ -66,9 +70,9 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
   let couponId: number | null = null;
   let discountAmount = 0;
 
-  if (coupon_code) {
+  if (normalizedCouponCode) {
     const coupon = await prisma.coupon.findUnique({
-      where: { code: coupon_code },
+      where: { code: normalizedCouponCode },
       include: { products: true },
     });
 

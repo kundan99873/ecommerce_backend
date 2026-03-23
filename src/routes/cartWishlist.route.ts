@@ -6,7 +6,9 @@ import {
   deleteProductFromCart,
   getCartProducts,
   getUserCartCoupons,
+  removeCouponFromCart,
   updateCartItem,
+  viewAllAvailableCartCoupons,
 } from "../controller/carts/cart.controller.js";
 import { verifyUserToken } from "../middleware/auth.middleware.js";
 import {
@@ -27,7 +29,9 @@ router
 router.route("/cart/clear").post(clearCart);
 router.route("/cart/remove/:slug").post(deleteProductFromCart);
 router.route("/cart/coupon").post(addCouponToCart);
+router.route("/cart/coupon").delete(removeCouponFromCart);
 router.route("/cart/coupons").get(getUserCartCoupons);
+router.route("/cart/coupons/view-all").get(viewAllAvailableCartCoupons);
 
 router
   .route("/wishlist/:slug")

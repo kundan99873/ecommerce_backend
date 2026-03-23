@@ -99,14 +99,19 @@ const getCouponById = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
-  const couponId = Number(req.params.id);
+  const rawCouponCode = req.params.code;
+  const couponCode = (
+    Array.isArray(rawCouponCode) ? rawCouponCode[0] : rawCouponCode
+  )
+    ?.trim()
+    .toUpperCase();
 
-  if (isNaN(couponId)) {
-    throw new ApiError(400, "Invalid coupon ID");
+  if (!couponCode) {
+    throw new ApiError(400, "Invalid coupon code");
   }
 
   const existing = await prisma.coupon.findUnique({
-    where: { id: couponId },
+    where: { code: couponCode },
   });
 
   if (!existing) {
@@ -114,13 +119,15 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const data = req.body;
+  const normalizedNextCode =
+    typeof data.code === "string" ? data.code.trim().toUpperCase() : undefined;
 
-  if (data.code && data.code !== existing.code) {
+  if (normalizedNextCode && normalizedNextCode !== existing.code) {
     const duplicate = await prisma.coupon.findUnique({
-      where: { code: data.code.toUpperCase() },
+      where: { code: normalizedNextCode },
     });
 
-    if (duplicate) {
+    if (duplicate && duplicate.id !== existing.id) {
       throw new ApiError(400, "Coupon code already exists");
     }
   }
@@ -133,7 +140,7 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 
   const updateData: Record<string, any> = {};
 
-  if (data.code) updateData.code = data.code.toUpperCase();
+  if (normalizedNextCode) updateData.code = normalizedNextCode;
   if (data.description !== undefined) updateData.description = data.description;
   if (data.discount_type !== undefined)
     updateData.discount_type = data.discount_type;
@@ -164,7 +171,7 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
   //   updateData.is_global = data.is_global;
 
   const updatedCoupon = await prisma.coupon.update({
-    where: { id: couponId },
+    where: { id: existing.id },
     data: updateData,
   });
 
@@ -174,14 +181,19 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const deleteCoupon = asyncHandler(async (req: Request, res: Response) => {
-  const couponId = Number(req.params.id);
+  const rawCouponCode = req.params.code;
+  const couponCode = (
+    Array.isArray(rawCouponCode) ? rawCouponCode[0] : rawCouponCode
+  )
+    ?.trim()
+    .toUpperCase();
 
-  if (isNaN(couponId)) {
-    throw new ApiError(400, "Invalid coupon ID");
+  if (!couponCode) {
+    throw new ApiError(400, "Invalid coupon code");
   }
 
   const existing = await prisma.coupon.findUnique({
-    where: { id: couponId },
+    where: { code: couponCode },
   });
 
   if (!existing) {
@@ -189,7 +201,7 @@ const deleteCoupon = asyncHandler(async (req: Request, res: Response) => {
   }
 
   await prisma.coupon.delete({
-    where: { id: couponId },
+    where: { id: existing.id },
   });
 
   res.status(200).json(new ApiResponse("Coupon deleted successfully", null));

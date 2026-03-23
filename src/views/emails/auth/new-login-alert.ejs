@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New login detected</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #f7f8fb;
+      font-family: Arial, sans-serif;
+      color: #111827;
+    "
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      style="padding: 24px"
+    >
+      <tr>
+        <td align="center">
+          <table
+            role="presentation"
+            width="600"
+            cellspacing="0"
+            cellpadding="0"
+            style="
+              max-width: 600px;
+              background: #ffffff;
+              border-radius: 12px;
+              overflow: hidden;
+              border: 1px solid #e5e7eb;
+            "
+          >
+            <tr>
+              <td
+                style="
+                  padding: 24px;
+                  background: #0f172a;
+                  color: #ffffff;
+                  font-size: 20px;
+                  font-weight: 700;
+                "
+              >
+                <%= appName %>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 24px">
+                <h1 style="margin: 0 0 12px 0; font-size: 22px">
+                  New sign-in to your account
+                </h1>
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  Hi <%= userName %>, a new login was detected.
+                </p>
+                <ul style="margin: 0 0 14px 18px; padding: 0; line-height: 1.8">
+                  <li>Time: <%= loginTime %></li>
+                  <li>Device: <%= deviceName %></li>
+                  <li>IP address: <%= ipAddress %></li>
+                  <li>Location: <%= location %></li>
+                </ul>
+                <p style="margin: 0; line-height: 1.6">
+                  If this was not you, reset your password immediately and
+                  contact
+                  <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a>.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

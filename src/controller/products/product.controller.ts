@@ -10,18 +10,19 @@ import { ApiResponse } from "../../utils/apiResponse.js";
 import type { addProductInput, productFilter, VariantInput } from "./types.js";
 import { generateSku } from "../../utils/utils.js";
 import {
+  productPincodeParamSchema,
+  productPincodesBodySchema,
   productAvailabilityQuerySchema,
   productQuerySchema,
 } from "../../validations/product.validation.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import cloudinary from "../../config/cloudinary.config.js";
-import redis from "../../config/redis.config.js";
 
-const RECENTLY_VISITED_LIMIT = 5;
-const RECENTLY_VISITED_BUFFER_LIMIT = 50;
+const RECENTLY_VISITED_LIMIT = 6;
 
-const getRecentlyVisitedRedisKey = (userId: number) =>
-  `recently_visited_products:${userId}`;
+const normalizePincodes = (pincodes: string[]) => [
+  ...new Set(pincodes.map((pincode) => pincode.trim())),
+];
 
 const addProduct = asyncHandler(
   async (req: Request, res: Response): Promise<Response> => {
@@ -150,6 +151,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsedQuery = productQuerySchema.parse(req.query);
   const userId = req.user?.user_id;
   console.log({ userId });
+  const validatedPincode = parsedQuery.pincode;
   const {
     sort,
     category,
@@ -238,6 +240,15 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
           },
         }
       : {}),
+    ...(validatedPincode
+      ? {
+          pincode: {
+            some: {
+              pincode: validatedPincode,
+            },
+          },
+        }
+      : {}),
   };
 
   const [totalProducts, products] = await Promise.all([
@@ -249,6 +260,7 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
       take: limit,
       skip: (page - 1) * limit,
       select: {
+        id: true,
         name: true,
         slug: true,
         description: true,
@@ -284,12 +296,49 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
     }),
   ]);
 
+  const productIds = products.map((product) => product.id);
+  const ratingRows =
+    productIds.length > 0
+      ? await prisma.review.groupBy({
+          by: ["product_id"],
+          where: {
+            product_id: {
+              in: productIds,
+            },
+          },
+          _avg: {
+            rating: true,
+          },
+          _count: {
+            _all: true,
+          },
+        })
+      : [];
+
+  const ratingMap = new Map(
+    ratingRows.map((row) => [
+      row.product_id,
+      {
+        average_rating: Number((row._avg.rating ?? 0).toFixed(2)),
+        total_reviews: row._count._all,
+      },
+    ]),
+  );
+
+  const productsWithRatings = products.map((product) => ({
+    ...product,
+    ...(ratingMap.get(product.id) ?? {
+      average_rating: 0,
+      total_reviews: 0,
+    }),
+  }));
+
   return res
     .status(200)
     .json(
       new ApiResponse(
         "Products retrieved successfully",
-        products,
+        productsWithRatings,
         totalProducts,
       ),
     );
@@ -353,12 +402,50 @@ const getProductWithoutVariants = asyncHandler(
         skip: (Number(page) - 1) * Number(limit),
       }),
     ]);
+
+    const productIds = products.map((product) => product.id);
+    const ratingRows =
+      productIds.length > 0
+        ? await prisma.review.groupBy({
+            by: ["product_id"],
+            where: {
+              product_id: {
+                in: productIds,
+              },
+            },
+            _avg: {
+              rating: true,
+            },
+            _count: {
+              _all: true,
+            },
+          })
+        : [];
+
+    const ratingMap = new Map(
+      ratingRows.map((row) => [
+        row.product_id,
+        {
+          average_rating: Number((row._avg.rating ?? 0).toFixed(2)),
+          total_reviews: row._count._all,
+        },
+      ]),
+    );
+
+    const productsWithRatings = products.map((product) => ({
+      ...product,
+      ...(ratingMap.get(product.id) ?? {
+        average_rating: 0,
+        total_reviews: 0,
+      }),
+    }));
+
     return res
       .status(200)
       .json(
         new ApiResponse(
           "Products retrieved successfully",
-          products,
+          productsWithRatings,
           totalCount,
         ),
       );
@@ -743,6 +830,7 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
   const product = await prisma.product.findUnique({
     where: { slug: slug as string },
     select: {
+      id: true,
       name: true,
       slug: true,
       description: true,
@@ -819,11 +907,25 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
+  const ratingAggregate = await prisma.review.aggregate({
+    where: {
+      product_id: product.id,
+    },
+    _avg: {
+      rating: true,
+    },
+    _count: {
+      _all: true,
+    },
+  });
+
   return res.status(200).json(
     new ApiResponse("Product retrieved successfully", {
       ...product,
       selected_variant: selectedVariant,
       coupons,
+      average_rating: Number((ratingAggregate._avg.rating ?? 0).toFixed(2)),
+      total_reviews: ratingAggregate._count._all,
     }),
   );
 });
@@ -866,6 +968,167 @@ const checkProductAvailabilityByPincode = asyncHandler(
   },
 );
 
+const getProductAvailablePincodes = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, slug: true },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    const pincodeRows = await prisma.productPincode.findMany({
+      where: { product_id: product.id },
+      select: { pincode: true },
+      orderBy: { pincode: "asc" },
+    });
+
+    return res.status(200).json(
+      new ApiResponse("Product pincodes fetched successfully", {
+        slug: product.slug,
+        pincodes: pincodeRows.map((row) => row.pincode),
+      }),
+    );
+  },
+);
+
+const addProductAvailablePincodes = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const { pincodes } = productPincodesBodySchema.parse(req.body);
+    const normalizedPincodes = normalizePincodes(pincodes);
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, slug: true },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    await prisma.productPincode.createMany({
+      data: normalizedPincodes.map((pincode) => ({
+        product_id: product.id,
+        pincode,
+      })),
+      skipDuplicates: true,
+    });
+
+    const pincodeRows = await prisma.productPincode.findMany({
+      where: { product_id: product.id },
+      select: { pincode: true },
+      orderBy: { pincode: "asc" },
+    });
+
+    return res.status(200).json(
+      new ApiResponse("Product pincodes added successfully", {
+        slug: product.slug,
+        pincodes: pincodeRows.map((row) => row.pincode),
+      }),
+    );
+  },
+);
+
+const replaceProductAvailablePincodes = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const { pincodes } = productPincodesBodySchema.parse(req.body);
+    const normalizedPincodes = normalizePincodes(pincodes);
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, slug: true },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productPincode.deleteMany({
+        where: { product_id: product.id },
+      });
+
+      await tx.productPincode.createMany({
+        data: normalizedPincodes.map((pincode) => ({
+          product_id: product.id,
+          pincode,
+        })),
+        skipDuplicates: true,
+      });
+    });
+
+    return res.status(200).json(
+      new ApiResponse("Product pincodes replaced successfully", {
+        slug: product.slug,
+        pincodes: normalizedPincodes.sort(),
+      }),
+    );
+  },
+);
+
+const removeProductAvailablePincode = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const { pincode } = productPincodeParamSchema.parse(req.params);
+
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, slug: true },
+    });
+
+    if (!product) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    const deleted = await prisma.productPincode.deleteMany({
+      where: {
+        product_id: product.id,
+        pincode,
+      },
+    });
+
+    if (deleted.count === 0) {
+      throw new ApiError(404, "Pincode not configured for this product");
+    }
+
+    return res.status(200).json(
+      new ApiResponse("Product pincode removed successfully", {
+        slug: product.slug,
+        pincode,
+      }),
+    );
+  },
+);
+
 const trackRecentlyVisitedProduct = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user!.user_id;
@@ -887,22 +1150,21 @@ const trackRecentlyVisitedProduct = asyncHandler(
       throw new ApiError(404, "Product not found");
     }
 
-    const redisKey = getRecentlyVisitedRedisKey(userId);
-    const now = Date.now();
-
-    try {
-      await redis.zadd(redisKey, `${now}`, slug);
-      await redis.zremrangebyrank(
-        redisKey,
-        0,
-        -(RECENTLY_VISITED_BUFFER_LIMIT + 1),
-      );
-    } catch (error) {
-      console.error(
-        "Failed to track recently visited product in Redis:",
-        error,
-      );
-    }
+    await prisma.recentlyViewedProduct.upsert({
+      where: {
+        user_id_product_id: {
+          user_id: userId,
+          product_id: product.id,
+        },
+      },
+      create: {
+        user_id: userId,
+        product_id: product.id,
+      },
+      update: {
+        updated_at: new Date(),
+      },
+    });
 
     return res.status(200).json(
       new ApiResponse("Recently visited product tracked successfully", {
@@ -915,70 +1177,48 @@ const trackRecentlyVisitedProduct = asyncHandler(
 const getRecentlyVisitedProducts = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user!.user_id;
-    const redisKey = getRecentlyVisitedRedisKey(userId);
+    console.log({ userId });
 
-    let slugs: string[] = [];
-
-    try {
-      slugs = await redis.zrevrange(redisKey, 0, RECENTLY_VISITED_LIMIT - 1);
-    } catch (error) {
-      console.error(
-        "Failed to fetch recently visited products from Redis:",
-        error,
-      );
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            "Recently visited products retrieved successfully",
-            [],
-          ),
-        );
-    }
-
-    if (slugs.length === 0) {
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            "Recently visited products retrieved successfully",
-            [],
-          ),
-        );
-    }
-
-    const products = await prisma.product.findMany({
+    const recentlyViewedRows = await prisma.recentlyViewedProduct.findMany({
       where: {
-        slug: {
-          in: slugs,
+        user_id: userId,
+        product: {
+          is_active: true,
         },
-        is_active: true,
       },
+      orderBy: {
+        updated_at: "desc",
+      },
+      take: RECENTLY_VISITED_LIMIT,
       select: {
-        name: true,
-        slug: true,
-        description: true,
-        brand: true,
-        category: {
+        product: {
           select: {
             name: true,
             slug: true,
-          },
-        },
-        variants: {
-          take: 1,
-          orderBy: {
-            discounted_price: "asc",
-          },
-          select: {
-            discounted_price: true,
-            original_price: true,
-            stock: true,
-            sku: true,
-            images: {
-              take: 1,
+            description: true,
+            brand: true,
+            category: {
               select: {
-                image_url: true,
+                name: true,
+                slug: true,
+              },
+            },
+            variants: {
+              take: 1,
+              orderBy: {
+                discounted_price: "asc",
+              },
+              select: {
+                discounted_price: true,
+                original_price: true,
+                stock: true,
+                sku: true,
+                images: {
+                  take: 1,
+                  select: {
+                    image_url: true,
+                  },
+                },
               },
             },
           },
@@ -986,14 +1226,18 @@ const getRecentlyVisitedProducts = asyncHandler(
       },
     });
 
-    const productMap = new Map(
-      products.map((product) => [product.slug, product]),
-    );
-    const orderedProducts = slugs
-      .map((slug) => productMap.get(slug))
-      .filter((product): product is NonNullable<typeof product> =>
-        Boolean(product),
-      );
+    if (recentlyViewedRows.length === 0) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            "Recently visited products retrieved successfully",
+            [],
+          ),
+        );
+    }
+
+    const orderedProducts = recentlyViewedRows.map((row) => row.product);
 
     return res
       .status(200)
@@ -1109,6 +1353,10 @@ export {
   getTopRatedProducts,
   getProductBySlug,
   checkProductAvailabilityByPincode,
+  getProductAvailablePincodes,
+  addProductAvailablePincodes,
+  replaceProductAvailablePincodes,
+  removeProductAvailablePincode,
   trackRecentlyVisitedProduct,
   getRecentlyVisitedProducts,
   getProductsByCategory,

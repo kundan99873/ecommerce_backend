@@ -35,6 +35,7 @@ model User {
   review     Review[]
   order      Order[]
   address    Address[]
+  recently_viewed_products RecentlyViewedProduct[]
   coupons    Coupon[] @relation("UserCoupons")
   sessions   UserSession[]
   coupon_usages  CouponUsage[]
@@ -93,6 +94,7 @@ model Product {
   category    Category? @relation(fields: [category_id], references: [id])
   variants    ProductVariant[]
   pincode     ProductPincode[]
+  recently_viewed_products RecentlyViewedProduct[]
   coupons     Coupon[] @relation("ProductCoupons")
   review      Review[]
   coupon_usages  CouponUsage[]
@@ -153,6 +155,22 @@ model ProductPincode {
   created_at DateTime @default(now())
   @@unique([product_id, pincode]) 
 
+  @@index([product_id])
+  @@index([pincode])
+}
+
+model RecentlyViewedProduct {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product_id Int
+  product    Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([user_id, product_id])
+  @@index([user_id])
+  @@index([user_id, updated_at])
   @@index([product_id])
 }
 

@@ -48,6 +48,57 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ message: "Cart is empty" });
   }
 
+  const deliveryPincode = address.pin_code.trim();
+  if (!/^\d{6}$/.test(deliveryPincode)) {
+    throw new ApiError(400, "Address pincode must be a valid 6 digit value");
+  }
+
+  const cartProductIds = [
+    ...new Set(cart.items.map((item) => item.product_variant.product_id)),
+  ];
+
+  const serviceableProductRows = await prisma.productPincode.findMany({
+    where: {
+      product_id: {
+        in: cartProductIds,
+      },
+      pincode: deliveryPincode,
+    },
+    select: {
+      product_id: true,
+    },
+  });
+
+  const serviceableProductIdSet = new Set(
+    serviceableProductRows.map((row) => row.product_id),
+  );
+  const unavailableProductIds = cartProductIds.filter(
+    (productId) => !serviceableProductIdSet.has(productId),
+  );
+
+  if (unavailableProductIds.length > 0) {
+    const unavailableProducts = await prisma.product.findMany({
+      where: {
+        id: {
+          in: unavailableProductIds,
+        },
+      },
+      select: {
+        name: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    throw new ApiError(
+      400,
+      `Delivery is not available for pincode ${deliveryPincode} for: ${unavailableProducts
+        .map((product) => product.name)
+        .join(", ")}`,
+    );
+  }
+
   for (const item of cart.items) {
     if (!item.product_variant.is_active)
       throw new ApiError(
@@ -279,8 +330,12 @@ const getUserOrders = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user?.user_id as number;
+  const userId = req.user?.user_id;
   const { order_number } = req.params;
+
+  if (typeof userId !== "number" || Number.isNaN(userId)) {
+    throw new ApiError(401, "Authentication required");
+  }
 
   const order = await prisma.order.findFirst({
     where: { order_number: order_number as string, user_id: userId },
@@ -385,12 +440,46 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
+  const roleId = req.user?.role_id;
+
+  if (roleId !== 1) {
+    throw new ApiError(403, "Only admin can access all orders");
+  }
+
   const {
     page = 1,
     limit = 10,
     sortBy = "created_at",
     sortOrder = "desc",
   } = req.query as OrderPayload;
+
+  const allowedSortBy = [
+    "created_at",
+    "updated_at",
+    "total_amount",
+    "final_amount",
+    "status",
+    "payment_status",
+  ] as const;
+
+  const normalizedSortBy = String(sortBy);
+  const normalizedSortOrder = String(sortOrder).toLowerCase();
+  const normalizedPage = Math.max(Number(page) || 1, 1);
+  const normalizedLimit = Math.min(Math.max(Number(limit) || 10, 1), 100);
+
+  if (
+    !allowedSortBy.includes(normalizedSortBy as (typeof allowedSortBy)[number])
+  ) {
+    throw new ApiError(
+      400,
+      `Invalid sortBy. Allowed values: ${allowedSortBy.join(", ")}`,
+    );
+  }
+
+  if (normalizedSortOrder !== "asc" && normalizedSortOrder !== "desc") {
+    throw new ApiError(400, "Invalid sortOrder. Allowed values: asc, desc");
+  }
+
   const orders = await prisma.order.findMany({
     select: {
       order_number: true,
@@ -429,9 +518,11 @@ const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
         },
       },
     },
-    orderBy: { [sortBy]: sortOrder },
-    skip: (page - 1) * limit,
-    take: limit,
+    orderBy: {
+      [normalizedSortBy]: normalizedSortOrder,
+    },
+    skip: (normalizedPage - 1) * normalizedLimit,
+    take: normalizedLimit,
   });
 
   const formattedOrders = orders.map((order) => ({
@@ -460,4 +551,112 @@ const getAllOrders = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse("Orders retrieved successfully", formattedOrders));
 });
 
-export { addOrder, getUserOrders, getOrderDetails, getAllOrders };
+const updateOrderStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { order_number } = req.params;
+  const { status } = req.body as { status?: OrderStatus };
+  const userId = req.user?.user_id as number;
+  const roleId = req.user?.role_id as number;
+
+  if (!status || typeof status !== "string") {
+    throw new ApiError(400, "status is required");
+  }
+
+  const normalizedStatus = status.trim().toUpperCase() as OrderStatus;
+  const validStatuses = Object.values(OrderStatus);
+
+  if (!validStatuses.includes(normalizedStatus)) {
+    throw new ApiError(400, "Invalid order status");
+  }
+
+  const isAdmin = roleId === 1;
+
+  if (!isAdmin && normalizedStatus !== OrderStatus.CANCELLED) {
+    throw new ApiError(
+      403,
+      "You can only cancel your order. Other status updates are admin only",
+    );
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { order_number: order_number as string },
+    select: {
+      id: true,
+      user_id: true,
+      status: true,
+      order_number: true,
+      updated_at: true,
+      items: {
+        select: {
+          product_variant_id: true,
+          quantity: true,
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new ApiError(404, "Order not found");
+  }
+
+  if (!isAdmin && order.user_id !== userId) {
+    throw new ApiError(403, "You can update only your own order");
+  }
+
+  const nonCancellableStatuses = new Set<OrderStatus>([
+    OrderStatus.DELIVERED,
+    OrderStatus.RETURNED,
+    OrderStatus.CANCELLED,
+  ]);
+
+  if (!isAdmin && nonCancellableStatuses.has(order.status)) {
+    throw new ApiError(400, "Order cannot be cancelled in current status");
+  }
+
+  if (order.status === normalizedStatus) {
+    return res
+      .status(200)
+      .json(new ApiResponse("Order status is already up to date", order));
+  }
+
+  const updatedOrder = await prisma.$transaction(async (tx) => {
+    if (
+      normalizedStatus === OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.CANCELLED
+    ) {
+      for (const item of order.items) {
+        await tx.productVariant.update({
+          where: {
+            id: item.product_variant_id,
+          },
+          data: {
+            stock: {
+              increment: item.quantity,
+            },
+          },
+        });
+      }
+    }
+
+    return tx.order.update({
+      where: { id: order.id },
+      data: { status: normalizedStatus },
+      select: {
+        order_number: true,
+        status: true,
+        updated_at: true,
+      },
+    });
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse("Order status updated successfully", updatedOrder));
+});
+
+export {
+  addOrder,
+  getUserOrders,
+  getOrderDetails,
+  getAllOrders,
+  updateOrderStatus,
+};

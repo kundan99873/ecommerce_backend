@@ -5,20 +5,25 @@ export interface VariantInput {
   discounted_price: number;
   stock: number;
   id?: number;
-  removed_image_ids?: number[]; 
+  removed_image_ids?: number[];
   primary_image_index?: number;
   // sku: string;
   // images?: Express.Multer.File[];
 }
 
 export type SortOptions = "price_low" | "price_high" | "top_rated" | "newest";
-export type FilterOptions = "in_stock" | "out_of_stock" | "featured" | "trending"
+export type FilterOptions =
+  | "in_stock"
+  | "out_of_stock"
+  | "featured"
+  | "trending";
 
 export interface productFilter {
   sort?: SortOptions;
   category?: string;
   filter?: any;
   is_product_listing_page?: any;
+  pincode?: string;
 }
 
 export interface addProductInput {
@@ -28,7 +33,6 @@ export interface addProductInput {
   category: string;
   variants: string | VariantInput[];
 }
-
 
 export interface AddReviewPayload {
   rating: number;

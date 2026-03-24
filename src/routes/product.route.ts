@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  addProductAvailablePincodes,
   addProduct,
+  getProductAvailablePincodes,
   checkProductAvailabilityByPincode,
   deleteProduct,
   getAllProducts,
@@ -8,6 +10,8 @@ import {
   getTopRatedProducts,
   getRecentlyVisitedProducts,
   getProductWithoutVariants,
+  removeProductAvailablePincode,
+  replaceProductAvailablePincodes,
   trackRecentlyVisitedProduct,
   updateProduct,
 } from "../controller/products/product.controller.js";
@@ -17,7 +21,11 @@ import {
   verifyUserToken,
 } from "../middleware/auth.middleware.js";
 import upload from "../middleware/image.middleware.js";
-import { addRatingToProduct } from "../controller/products/productRating.controller.js";
+import {
+  addRatingToProduct,
+  deleteProductReview,
+  getProductReviews,
+} from "../controller/products/productRating.controller.js";
 
 const router = Router();
 
@@ -27,19 +35,31 @@ router
   .get(verifyOptionalToken, getProductWithoutVariants);
 router.route("/top-rated").get(verifyOptionalToken, getTopRatedProducts);
 router.route("/:slug/availability").get(checkProductAvailabilityByPincode);
+router.route("/:slug/reviews").get(verifyOptionalToken, getProductReviews);
+
+router.use(verifyUserToken);
+router
+  .route("/review/:slug")
+  .post(addRatingToProduct)
+  .patch(addRatingToProduct)
+  .delete(deleteProductReview);
+router.route("/recently-visited/:slug").post(trackRecentlyVisitedProduct);
+router.route("/recently-visited").get(getRecentlyVisitedProducts);
+
 router
   .route("/:slug")
   .get(getProductBySlug)
   .patch(upload.any(), verifyAdminToken, updateProduct)
   .delete(deleteProduct);
 
-router.use(verifyUserToken);
-router.route("/review/:slug").post(addRatingToProduct);
-router.route("/recently-visited/:slug").post(trackRecentlyVisitedProduct);
-router.route("/recently-visited").get(getRecentlyVisitedProducts);
-
 router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);
+router
+  .route("/:slug/pincodes")
+  .get(getProductAvailablePincodes)
+  .post(addProductAvailablePincodes)
+  .put(replaceProductAvailablePincodes);
+router.route("/:slug/pincodes/:pincode").delete(removeProductAvailablePincode);
 // router.route("/:slug").post(verifyAdminToken, updateProduct);
 
 export default router;

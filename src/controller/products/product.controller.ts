@@ -1000,7 +1000,7 @@ const checkProductAvailabilityByPincode = asyncHandler(
           product_id: product.id,
           pincode,
         },
-      })) > 0;
+      })) === 0;
 
     return res.status(200).json(
       new ApiResponse("Product availability fetched successfully", {
@@ -1012,7 +1012,7 @@ const checkProductAvailabilityByPincode = asyncHandler(
   },
 );
 
-const getProductAvailablePincodes = asyncHandler(
+const getProductUnserviceablePincodes = asyncHandler(
   async (req: Request, res: Response) => {
     const rawSlug = req.params.slug;
     const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
@@ -1037,15 +1037,15 @@ const getProductAvailablePincodes = asyncHandler(
     });
 
     return res.status(200).json(
-      new ApiResponse("Product pincodes fetched successfully", {
+      new ApiResponse("Product unserviceable pincodes fetched successfully", {
         slug: product.slug,
-        pincodes: pincodeRows.map((row) => row.pincode),
+        unserviceable_pincodes: pincodeRows.map((row) => row.pincode),
       }),
     );
   },
 );
 
-const addProductAvailablePincodes = asyncHandler(
+const addProductUnserviceablePincodes = asyncHandler(
   async (req: Request, res: Response) => {
     const rawSlug = req.params.slug;
     const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
@@ -1081,15 +1081,15 @@ const addProductAvailablePincodes = asyncHandler(
     });
 
     return res.status(200).json(
-      new ApiResponse("Product pincodes added successfully", {
+      new ApiResponse("Product unserviceable pincodes added successfully", {
         slug: product.slug,
-        pincodes: pincodeRows.map((row) => row.pincode),
+        unserviceable_pincodes: pincodeRows.map((row) => row.pincode),
       }),
     );
   },
 );
 
-const replaceProductAvailablePincodes = asyncHandler(
+const replaceProductUnserviceablePincodes = asyncHandler(
   async (req: Request, res: Response) => {
     const rawSlug = req.params.slug;
     const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
@@ -1125,15 +1125,15 @@ const replaceProductAvailablePincodes = asyncHandler(
     });
 
     return res.status(200).json(
-      new ApiResponse("Product pincodes replaced successfully", {
+      new ApiResponse("Product unserviceable pincodes replaced successfully", {
         slug: product.slug,
-        pincodes: normalizedPincodes.sort(),
+        unserviceable_pincodes: normalizedPincodes.sort(),
       }),
     );
   },
 );
 
-const removeProductAvailablePincode = asyncHandler(
+const removeProductUnserviceablePincode = asyncHandler(
   async (req: Request, res: Response) => {
     const rawSlug = req.params.slug;
     const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
@@ -1161,11 +1161,14 @@ const removeProductAvailablePincode = asyncHandler(
     });
 
     if (deleted.count === 0) {
-      throw new ApiError(404, "Pincode not configured for this product");
+      throw new ApiError(
+        404,
+        "Unserviceable pincode not configured for this product",
+      );
     }
 
     return res.status(200).json(
-      new ApiResponse("Product pincode removed successfully", {
+      new ApiResponse("Product unserviceable pincode removed successfully", {
         slug: product.slug,
         pincode,
       }),
@@ -1397,10 +1400,10 @@ export {
   getTopRatedProducts,
   getProductBySlug,
   checkProductAvailabilityByPincode,
-  getProductAvailablePincodes,
-  addProductAvailablePincodes,
-  replaceProductAvailablePincodes,
-  removeProductAvailablePincode,
+  getProductUnserviceablePincodes,
+  addProductUnserviceablePincodes,
+  replaceProductUnserviceablePincodes,
+  removeProductUnserviceablePincode,
   trackRecentlyVisitedProduct,
   getRecentlyVisitedProducts,
   getProductsByCategory,

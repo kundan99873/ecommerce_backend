@@ -13,19 +13,96 @@ import type { OrderPayload } from "./order.types.js";
 const generateOrderNumber = () =>
   `ORD-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
+const mapRazorpayPaymentStatus = (razorpayPaymentStatus: string) => {
+  const normalizedStatus = razorpayPaymentStatus.trim().toLowerCase();
+
+  if (normalizedStatus === "captured" || normalizedStatus === "authorized") {
+    return {
+      orderStatus: OrderStatus.PROCESSING,
+      paymentStatus: PaymentStatus.SUCCESS,
+    };
+  }
+
+  if (normalizedStatus === "failed") {
+    return {
+      orderStatus: OrderStatus.CANCELLED,
+      paymentStatus: PaymentStatus.FAILED,
+    };
+  }
+
+  return {
+    orderStatus: OrderStatus.PENDING,
+    paymentStatus: PaymentStatus.PENDING,
+  };
+};
+
+const fetchRazorpayPaymentStatus = async (razorpayId: string) => {
+  const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+  const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  if (!razorpayKeyId || !razorpayKeySecret) {
+    throw new ApiError(
+      500,
+      "Razorpay credentials are not configured on the server",
+    );
+  }
+
+  const authorization = Buffer.from(
+    `${razorpayKeyId}:${razorpayKeySecret}`,
+  ).toString("base64");
+
+  const response = await fetch(
+    `https://api.razorpay.com/v1/payments/${encodeURIComponent(razorpayId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${authorization}`,
+      },
+    },
+  );
+
+  let payload: { status?: string; error?: { description?: string } } = {};
+  try {
+    payload = (await response.json()) as {
+      status?: string;
+      error?: { description?: string };
+    };
+  } catch {
+    payload = {};
+  }
+
+  if (!response.ok) {
+    const errorMessage =
+      payload.error?.description || "Unable to verify Razorpay payment";
+    throw new ApiError(400, errorMessage);
+  }
+
+  if (!payload.status) {
+    throw new ApiError(502, "Razorpay payment status is missing in response");
+  }
+
+  return mapRazorpayPaymentStatus(payload.status);
+};
+
 const addOrder = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.user_id as number;
 
-  const { address_id, coupon_code, payment_method } = req.body as {
+  const { address_id, coupon_code, payment_method, razorpay_id } = req.body as {
     address_id: number;
     coupon_code?: string;
     payment_method?: string;
+    razorpay_id?: string;
   };
   const normalizedCouponCode = coupon_code?.trim().toUpperCase();
+  const normalizedPaymentMethod = payment_method?.trim().toLowerCase();
+  const normalizedRazorpayId = razorpay_id?.trim();
 
   if (!address_id) throw new ApiError(400, "Address ID is required");
   if (coupon_code !== undefined && !normalizedCouponCode) {
     throw new ApiError(400, "coupon_code must be a non-empty string");
+  }
+  if (normalizedPaymentMethod === "razorpay" && !normalizedRazorpayId) {
+    throw new ApiError(400, "razorpay_id is required for Razorpay payment");
   }
 
   const address = await prisma.address.findFirst({
@@ -57,7 +134,7 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
     ...new Set(cart.items.map((item) => item.product_variant.product_id)),
   ];
 
-  const serviceableProductRows = await prisma.productPincode.findMany({
+  const unserviceableProductRows = await prisma.productPincode.findMany({
     where: {
       product_id: {
         in: cartProductIds,
@@ -69,11 +146,11 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
     },
   });
 
-  const serviceableProductIdSet = new Set(
-    serviceableProductRows.map((row) => row.product_id),
+  const unserviceableProductIdSet = new Set(
+    unserviceableProductRows.map((row) => row.product_id),
   );
-  const unavailableProductIds = cartProductIds.filter(
-    (productId) => !serviceableProductIdSet.has(productId),
+  const unavailableProductIds = cartProductIds.filter((productId) =>
+    unserviceableProductIdSet.has(productId),
   );
 
   if (unavailableProductIds.length > 0) {
@@ -193,6 +270,16 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
 
   const finalAmount = Math.max(totalAmount - discountAmount, 0);
 
+  let orderStatus: OrderStatus = OrderStatus.PENDING;
+  let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
+
+  if (normalizedPaymentMethod === "razorpay" && normalizedRazorpayId) {
+    const resolvedStatus =
+      await fetchRazorpayPaymentStatus(normalizedRazorpayId);
+    orderStatus = resolvedStatus.orderStatus;
+    paymentStatus = resolvedStatus.paymentStatus;
+  }
+
   const createdOrder = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
       data: {
@@ -203,9 +290,9 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
         final_amount: finalAmount,
         coupon_id: couponId,
         address_id: Number(address_id),
-        payment_method: payment_method || null,
-        status: OrderStatus.PENDING,
-        payment_status: PaymentStatus.PENDING,
+        payment_method: normalizedPaymentMethod || null,
+        status: orderStatus,
+        payment_status: paymentStatus,
         items: {
           create: cart.items.map((item) => ({
             product_variant_id: item.product_variant_id,
@@ -215,6 +302,14 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
         },
       },
     });
+
+    if (normalizedPaymentMethod === "razorpay" && normalizedRazorpayId) {
+      await tx.$executeRaw`
+        UPDATE "Order"
+        SET "razorpay_id" = ${normalizedRazorpayId}
+        WHERE "id" = ${order.id}
+      `;
+    }
 
     for (const item of cart.items) {
       await tx.productVariant.update({

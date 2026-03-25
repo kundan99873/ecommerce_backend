@@ -12,6 +12,7 @@ import couponRoutes from "./routes/coupon.routes.js";
 import cartWishliadtRoutes from "./routes/cartWishlist.route.js";
 import orderRoutes from "./routes/order.route.js";
 import landingRoutes from "./routes/landing.route.js";
+import adminRoutes from "./routes/admin.route.js";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -42,6 +43,7 @@ app.use("/api/category", categoryRoutes);
 app.use("/api/hero-slides", heroSlideRoutes);
 app.use("/api/coupon", couponRoutes);
 app.use("/api/order", orderRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use(errorMiddleware);
 app.listen(PORT, async () => {

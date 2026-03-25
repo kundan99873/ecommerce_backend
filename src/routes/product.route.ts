@@ -1,8 +1,8 @@
 import { Router } from "express";
 import {
-  addProductAvailablePincodes,
+  addProductUnserviceablePincodes,
   addProduct,
-  getProductAvailablePincodes,
+  getProductUnserviceablePincodes,
   checkProductAvailabilityByPincode,
   deleteProduct,
   getAllProducts,
@@ -10,8 +10,8 @@ import {
   getTopRatedProducts,
   getRecentlyVisitedProducts,
   getProductWithoutVariants,
-  removeProductAvailablePincode,
-  replaceProductAvailablePincodes,
+  removeProductUnserviceablePincode,
+  replaceProductUnserviceablePincodes,
   trackRecentlyVisitedProduct,
   updateProduct,
 } from "../controller/products/product.controller.js";
@@ -58,10 +58,12 @@ router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);
 router
   .route("/:slug/pincodes")
-  .get(getProductAvailablePincodes)
-  .post(addProductAvailablePincodes)
-  .put(replaceProductAvailablePincodes);
-router.route("/:slug/pincodes/:pincode").delete(removeProductAvailablePincode);
+  .get(getProductUnserviceablePincodes)
+  .post(addProductUnserviceablePincodes)
+  .put(replaceProductUnserviceablePincodes);
+router
+  .route("/:slug/pincodes/:pincode")
+  .delete(removeProductUnserviceablePincode);
 // router.route("/:slug").post(verifyAdminToken, updateProduct);
 
 export default router;

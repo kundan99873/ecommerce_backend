@@ -181,6 +181,23 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const limit = Number(parsedQuery.limit ?? 20);
   const search = parsedQuery.search;
 
+  // Store search history if user is logged in and search query exists
+  if (
+    userId &&
+    search &&
+    typeof search === "string" &&
+    search.trim().length > 0
+  ) {
+    await prisma.searchHistory.create({
+      data: {
+        user_id: userId,
+        search_query: search.trim(),
+        category_filter: category ? String(category) : null,
+        brand_filter: req.query.brand ? String(req.query.brand) : null,
+      },
+    });
+  }
+
   let categoryId: number | null = null;
 
   if (category) {
@@ -199,13 +216,40 @@ const getAllProducts = asyncHandler(async (req: Request, res: Response) => {
   const whereCondition: Prisma.ProductWhereInput = {
     ...(search
       ? {
-          name: {
-            contains: search,
-            mode: "insensitive",
-          },
+          OR: [
+            {
+              name: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+            {
+              description: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+            {
+              brand: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+            {
+              category: {
+                name: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+            },
+          ],
         }
       : {}),
     ...(categoryId ? { category_id: categoryId } : {}),
+    ...(req.query.brand
+      ? { brand: { equals: String(req.query.brand), mode: "insensitive" } }
+      : {}),
     ...(filter == "in_stock"
       ? {
           variants: {

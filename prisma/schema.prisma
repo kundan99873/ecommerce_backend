@@ -39,6 +39,7 @@ model User {
   coupons    Coupon[] @relation("UserCoupons")
   sessions   UserSession[]
   coupon_usages  CouponUsage[]
+  search_history SearchHistory[]
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 }
@@ -347,6 +348,20 @@ model OrderItem {
   created_at         DateTime        @default(now())
   updated_at         DateTime        @updatedAt
   @@unique([order_id, product_variant_id])
+}
+
+model SearchHistory {
+  id              Int      @id @default(autoincrement())
+  user_id         Int?
+  user            User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  search_query    String
+  category_filter String?
+  brand_filter    String?
+  created_at      DateTime @default(now())
+
+  @@index([user_id])
+  @@index([user_id, created_at])
+  @@index([search_query])
 }
 
 model Address {

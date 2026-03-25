@@ -26,6 +26,7 @@ import {
   deleteProductReview,
   getProductReviews,
 } from "../controller/products/productRating.controller.js";
+import { getRecentSearches } from "../controller/products/search.controller.js";
 
 const router = Router();
 
@@ -38,6 +39,7 @@ router.route("/:slug/availability").get(checkProductAvailabilityByPincode);
 router.route("/:slug/reviews").get(verifyOptionalToken, getProductReviews);
 
 router.use(verifyUserToken);
+router.route("/search/recent").get(getRecentSearches);
 router
   .route("/review/:slug")
   .post(addRatingToProduct)

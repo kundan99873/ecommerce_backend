@@ -9,13 +9,17 @@ export interface GeneratedTokens {
   refreshToken: string;
 }
 
-
 export interface getUserQuery {
   search?: string;
   role?: number;
   limit?: number;
   page?: number;
   sort?: "asc" | "desc";
+}
+
+export interface AdminDashboardQuery {
+  from?: string;
+  to?: string;
 }
 
 export interface addAddressBody {

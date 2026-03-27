@@ -3,13 +3,13 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import compression from "compression";
 import errorMiddleware from "./middleware/error.middleware.js";
-import userRoutes from "./routes/auth.route.js";
+import authRoutes from "./routes/auth.route.js";
 import corsConfig from "./config/cors.config.js";
 import productRoutes from "./routes/product.route.js";
 import categoryRoutes from "./routes/category.route.js";
 import heroSlideRoutes from "./routes/heroSlide.route.js";
+import userRoutes from "./routes/user.route.js"
 import couponRoutes from "./routes/coupon.routes.js";
-import cartWishliadtRoutes from "./routes/cartWishlist.route.js";
 import orderRoutes from "./routes/order.route.js";
 import landingRoutes from "./routes/landing.route.js";
 import adminRoutes from "./routes/admin.route.js";
@@ -36,8 +36,8 @@ app.get("/test", (req, res) => {
   });
 });
 
+app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
-app.use("/api/users", cartWishliadtRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/hero-slides", heroSlideRoutes);

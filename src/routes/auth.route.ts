@@ -63,27 +63,12 @@ router.route("/refresh").post(refreshToken);
 router
   .route("/change-password")
   .post(validate(changePasswordSchema), changePassword);
-router.route("/get-details").get(getLoggedInUser);
-router
-  .route("/profile")
-  .get(getUserFullDetailsById)
-  .patch(
-    upload.single("avatar"),
-    validate(updateProfileSchema),
-    updateUserProfile,
-  );
+
 router.post("/logout", logoutUser);
 router.route("/sessions").get(getActiveSessions);
 router.route("/sessions/logout-others").post(logoutOtherSessions);
 router.route("/sessions/:sessionId").delete(revokeSession);
 
-router
-  .route("/address")
-  .post(validate(addAddressSchema), addAddress)
-  .get(getUserAddresses);
-router
-  .route("/address/:id")
-  .delete(deleteAddress)
-  .patch(validate(addAddressSchema), updateAddress);
+
 
 export default router;

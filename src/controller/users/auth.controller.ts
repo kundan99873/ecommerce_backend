@@ -645,7 +645,7 @@ const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
 
 const changePassword = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
-  const { currentPassword, newPassword } = req.body;
+  const { current_password:currentPassword, new_password:newPassword } = req.body;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -687,7 +687,7 @@ const changePassword = asyncHandler(async (req: Request, res: Response) => {
   return res.status(200).json(new ApiResponse("Password changed successfully"));
 });
 
-const resetPassword = asyncHandler(async (req: Request, res: Response) => {
+const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
   const { email } = req.body;
 
   const user = await prisma.user.findUnique({
@@ -722,7 +722,7 @@ const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   );
 });
 
-const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   const { token, newPassword } = req.body;
 
   if (!token || typeof token !== "string") {

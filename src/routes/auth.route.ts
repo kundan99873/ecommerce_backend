@@ -25,7 +25,10 @@ import {
   verifyOptionalToken,
   verifyUserToken,
 } from "../middleware/auth.middleware.js";
-import { getLoggedInUser } from "../controller/users/user.controller.js";
+import {
+  getLoggedInUser,
+  updateUserProfile,
+} from "../controller/users/user.controller.js";
 import { addRole } from "../controller/users/role.controller.js";
 import {
   addAddress,
@@ -33,7 +36,11 @@ import {
   getUserAddresses,
   updateAddress,
 } from "../controller/users/userInfo.controller.js";
-import { addAddressSchema } from "../validations/user.validation.js";
+import {
+  addAddressSchema,
+  updateProfileSchema,
+} from "../validations/user.validation.js";
+import { getUserFullDetailsById } from "../controller/users/adminUser.controller.js";
 
 const router = Router();
 
@@ -43,7 +50,8 @@ router
 router.route("/login").post(validate(loginUserSchema), loginUser);
 router.route("/google-login").post(googleLogin);
 router.route("/verify-email").post(verifyEmail);
-router.route("/forgot-password").post(resetPassword).patch(forgotPassword);
+router.route("/forgot-password").post(forgotPassword);
+router.route("/reset-password").post(resetPassword);
 router
   .route("/me")
   .get(verifyOptionalToken, isLogedInUser)
@@ -56,6 +64,14 @@ router
   .route("/change-password")
   .post(validate(changePasswordSchema), changePassword);
 router.route("/get-details").get(getLoggedInUser);
+router
+  .route("/profile")
+  .get(getUserFullDetailsById)
+  .patch(
+    upload.single("avatar"),
+    validate(updateProfileSchema),
+    updateUserProfile,
+  );
 router.post("/logout", logoutUser);
 router.route("/sessions").get(getActiveSessions);
 router.route("/sessions/logout-others").post(logoutOtherSessions);

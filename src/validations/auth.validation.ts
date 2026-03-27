@@ -13,7 +13,7 @@ const loginUserSchema = z.object({
 
 
 const changePasswordSchema = z.object({
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  current_password: z.string().min(6, "Password must be at least 6 characters"),
   new_password: z.string().min(6, "New Password must be at least 6 characters"),
 });
 

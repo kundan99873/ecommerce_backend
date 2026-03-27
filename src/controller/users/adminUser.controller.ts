@@ -244,7 +244,8 @@ const changeUserStatus = asyncHandler(async (req: Request, res: Response) => {
 
 const getUserFullDetailsById = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = Number(req.params.id);
+    const id = Number(req.params.id);
+    const userId = req.user?.user_id || id;
 
     if (Number.isNaN(userId)) {
       throw new ApiError(400, "Invalid user ID");
@@ -308,29 +309,47 @@ const getUserFullDetailsById = asyncHandler(
           select: {
             product_variant: {
               select: {
+                discounted_price: true,
+                sku: true,
+                stock: true,
+                color: true,
+                size: true,
+                images: {
+                  select: {
+                    image_url: true,
+                    is_primary: true,
+                  },
+                  orderBy: {
+                    is_primary: "desc",
+                  },
+                },
                 product: {
                   select: {
-                    id: true,
                     name: true,
-                    description: true,
                     slug: true,
-                    brand: true,
-                    is_active: true,
-                    category: {
-                      select: {
-                        name: true,
-                        slug: true,
-                      },
-                    },
-                    review: {
-                      select: {
-                        rating: true,
-                      },
-                    },
                   },
                 },
               },
             },
+          },
+        },
+        address: {
+          orderBy: [{ is_default: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            phone_code: true,
+            phone_number: true,
+            line1: true,
+            line2: true,
+            city: true,
+            state: true,
+            pin_code: true,
+            country: true,
+            landmark: true,
+            is_default: true,
+            is_active: true,
           },
         },
         order: {
@@ -456,60 +475,36 @@ const getUserFullDetailsById = asyncHandler(
       size: item.product_variant.size ?? undefined,
       price: item.price,
       quantity: item.quantity,
-      images: item.product_variant.images,
+      image: item.product_variant.images[0]?.image_url,
     }));
 
-    const wishlistMap = new Map<
-      number,
-      {
-        id: number;
-        name: string;
-        description: string;
-        category: { name: string; slug: string };
-        brand: string;
-        slug: string;
-        is_active: boolean;
-        average_rating?: number;
-        total_reviews?: number;
-      }
-    >();
+    const wishlistDetails = user.wishlist.map((item) => ({
+      price: item.product_variant.discounted_price,
+      name: item.product_variant.product.name,
+      slug: item.product_variant.product.slug,
+      sku: item.product_variant.sku,
+      stock: item.product_variant.stock,
+      color: item.product_variant.color ?? "",
+      size: item.product_variant.size ?? "",
+      image: item.product_variant.images[0]?.image_url ?? "",
+    }));
 
-    for (const item of user.wishlist) {
-      const product = item.product_variant.product;
-      if (wishlistMap.has(product.id)) continue;
-
-      const totalReviews = product.review.length;
-      const averageRating =
-        totalReviews > 0
-          ? Number(
-              (
-                product.review.reduce((sum, review) => sum + review.rating, 0) /
-                totalReviews
-              ).toFixed(2),
-            )
-          : undefined;
-
-      const wishlistProduct = {
-        id: product.id,
-        name: product.name,
-        description: product.description ?? "",
-        category: {
-          name: product.category?.name ?? "",
-          slug: product.category?.slug ?? "",
-        },
-        brand: product.brand ?? "",
-        slug: product.slug,
-        is_active: product.is_active,
-        total_reviews: totalReviews,
-        ...(averageRating !== undefined
-          ? { average_rating: averageRating }
-          : {}),
-      };
-
-      wishlistMap.set(product.id, wishlistProduct);
-    }
-
-    const wishlistDetails = Array.from(wishlistMap.values());
+    const addressDetails = user.address.map((address) => ({
+      id: address.id,
+      first_name: address.first_name,
+      last_name: address.last_name,
+      phone_code: address.phone_code,
+      phone_number: address.phone_number,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state: address.state,
+      pin_code: address.pin_code,
+      country: address.country,
+      landmark: address.landmark,
+      is_default: address.is_default,
+      is_active: address.is_active,
+    }));
 
     const orderDetails = user.order.map((order) => ({
       order_number: order.order_number,
@@ -534,9 +529,9 @@ const getUserFullDetailsById = asyncHandler(
     }));
 
     const payload = {
-      personal_details: {
+      personal_info: {
         id: user.id,
-        username: user.name,
+        name: user.name,
         email: user.email,
         phone_code: user.pnone_code,
         phone_number: user.phone_number,
@@ -546,6 +541,7 @@ const getUserFullDetailsById = asyncHandler(
       },
       cart_details: cartDetails,
       wishlist_details: wishlistDetails,
+      address_details: addressDetails,
       order_details: orderDetails,
       coupons_available: couponsAvailable,
     };

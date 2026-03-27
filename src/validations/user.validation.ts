@@ -16,4 +16,11 @@ const addAddressSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
-export { addAddressSchema };
+const updateProfileSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  email: z.string().email().optional(),
+  phone_code: z.string().min(1).max(5).optional(),
+  phone_number: z.string().min(6).max(15).optional(),
+});
+
+export { addAddressSchema, updateProfileSchema };

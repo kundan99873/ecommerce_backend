@@ -723,7 +723,7 @@ const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const resetPassword = asyncHandler(async (req: Request, res: Response) => {
-  const { token, newPassword } = req.body;
+  const { token, new_password: newPassword } = req.body;
 
   if (!token || typeof token !== "string") {
     throw new ApiError(400, "Invalid or missing token");
@@ -758,6 +758,27 @@ const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   return res.status(200).json(new ApiResponse("Password reset successfully"));
 });
 
+const verifyResetToken = asyncHandler(async (req: Request, res: Response) => {
+  const { token } = req.body;
+
+  if (!token || typeof token !== "string") {
+    throw new ApiError(400, "Invalid or missing token");
+  }
+
+  const user = await prisma.user.findFirst({
+    where: {
+      forgot_password_token: token,
+      forgot_password_expires: { gt: new Date() },
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(400, "Invalid or expired token");
+  }
+
+  return res.status(200).json(new ApiResponse("Token is valid"));
+});
+
 export {
   registerUser,
   loginUser,
@@ -772,4 +793,5 @@ export {
   changePassword,
   resetPassword,
   forgotPassword,
+  verifyResetToken,
 };

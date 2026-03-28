@@ -24,7 +24,11 @@ app.use(morgan("dev"));
 app.use(compression());
 
 const PORT = process.env.PORT || 3000;
-nodemailerTransporter.verify()
+nodemailerTransporter.verify().then(() => {
+  console.log("Nodemailer transporter is ready to send emails");
+}).catch((err) => {
+  console.error("Error verifying nodemailer transporter:", err);
+});
 
 app.use("/", landingRoutes);
 app.get("/test", (req, res) => {

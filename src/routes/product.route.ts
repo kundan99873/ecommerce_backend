@@ -37,6 +37,9 @@ router
 router.route("/top-rated").get(verifyOptionalToken, getTopRatedProducts);
 router.route("/:slug/availability").get(checkProductAvailabilityByPincode);
 router.route("/:slug/reviews").get(verifyOptionalToken, getProductReviews);
+router
+  .route("/:slug")
+  .get(verifyOptionalToken, getProductBySlug);
 
 router.use(verifyUserToken);
 router.route("/search/recent").get(getRecentSearches);
@@ -50,7 +53,6 @@ router.route("/recently-visited").get(getRecentlyVisitedProducts);
 
 router
   .route("/:slug")
-  .get(getProductBySlug)
   .patch(upload.any(), verifyAdminToken, updateProduct)
   .delete(deleteProduct);
 

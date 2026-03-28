@@ -25,22 +25,8 @@ import {
   verifyOptionalToken,
   verifyUserToken,
 } from "../middleware/auth.middleware.js";
-import {
-  getLoggedInUser,
-  updateUserProfile,
-} from "../controller/users/user.controller.js";
 import { addRole } from "../controller/users/role.controller.js";
-import {
-  addAddress,
-  deleteAddress,
-  getUserAddresses,
-  updateAddress,
-} from "../controller/users/userInfo.controller.js";
-import {
-  addAddressSchema,
-  updateProfileSchema,
-} from "../validations/user.validation.js";
-import { getUserFullDetailsById } from "../controller/users/adminUser.controller.js";
+
 
 const router = Router();
 

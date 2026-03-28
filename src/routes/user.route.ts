@@ -14,7 +14,7 @@ import upload from "../middleware/image.middleware.js";
 
 const router = Router();
 
-router.use("", cartWishlistRoutes);
+router.use(cartWishlistRoutes);
 
 
 router.route("/get-details").get(getLoggedInUser);

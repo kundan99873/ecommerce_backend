@@ -13,6 +13,7 @@ import couponRoutes from "./routes/coupon.routes.js";
 import orderRoutes from "./routes/order.route.js";
 import landingRoutes from "./routes/landing.route.js";
 import adminRoutes from "./routes/admin.route.js";
+import { nodemailerTransporter } from "./config/nodemailer.config.js";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -23,6 +24,7 @@ app.use(morgan("dev"));
 app.use(compression());
 
 const PORT = process.env.PORT || 3000;
+nodemailerTransporter.verify()
 
 app.use("/", landingRoutes);
 app.get("/test", (req, res) => {

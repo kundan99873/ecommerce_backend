@@ -7,7 +7,7 @@ const router = Router();
 
 router.use(verifyAdminToken);
 
-router.use("/user").use(adminUserRoutes);
+router.use("/user", adminUserRoutes);
 router.route("/dashboard/home").get(getAdminHomeDashboardStats);
 
 export default router;

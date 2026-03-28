@@ -2,6 +2,8 @@ import nodemailer from "nodemailer";
 
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 
+console.log(process.env.SMTP_HOST, process.env.SMTP_USER, process.env.SMTP_PASS)
+
 export const nodemailerTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: SMTP_PORT,

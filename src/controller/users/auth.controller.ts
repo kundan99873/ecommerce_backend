@@ -59,6 +59,29 @@ const sendAuthTemplateEmail = async (
   }
 };
 
+const getActiveUserSessions = async (userId: number) => {
+  const sessions = await prisma.userSession.findMany({
+    where: {
+      user_id: userId,
+      is_revoked: false,
+    },
+    orderBy: {
+      last_used_at: "desc",
+    },
+    select: {
+      id: true,
+      device_id: true,
+      device_name: true,
+      user_agent: true,
+      ip_address: true,
+      created_at: true,
+      last_used_at: true,
+    },
+  });
+
+  return sessions;
+};
+
 const registerUser = asyncHandler(async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
 
@@ -115,7 +138,11 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const loginUser = asyncHandler(async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const { email, password, force_logout_device_id } = req.body as {
+    email: string;
+    password: string;
+    force_logout_device_id?: string;
+  };
 
   const user = await prisma.user.findUnique({
     where: { email },
@@ -202,10 +229,54 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (activeDeviceCount >= 3) {
-    throw new ApiError(
-      403,
-      "You are already logged in on 3 devices. Please log out from any device and try again.",
-    );
+    const forcedDeviceId = force_logout_device_id?.trim();
+
+    if (forcedDeviceId) {
+      const revokedSession = await prisma.userSession.updateMany({
+        where: {
+          user_id: user.id,
+          device_id: forcedDeviceId,
+          is_revoked: false,
+        },
+        data: {
+          is_revoked: true,
+          last_used_at: new Date(),
+        },
+      });
+
+      if (revokedSession.count === 0) {
+        const activeSessions = await getActiveUserSessions(user.id);
+
+        return res
+          .status(403)
+          .json(
+            new ApiResponse(
+              "Invalid device selected. Please choose one of the active devices to sign out.",
+              activeSessions,
+            ),
+          );
+      }
+    }
+
+    const refreshedActiveDeviceCount = await prisma.userSession.count({
+      where: {
+        user_id: user.id,
+        is_revoked: false,
+      },
+    });
+
+    if (refreshedActiveDeviceCount >= 3) {
+      const activeSessions = await getActiveUserSessions(user.id);
+
+      return res
+        .status(403)
+        .json(
+          new ApiResponse(
+            "You are already logged in on 3 devices. Please log out from any one device and try again.",
+            activeSessions,
+          ),
+        );
+    }
   }
 
   const deviceId = crypto.randomBytes(32).toString("hex");
@@ -264,7 +335,10 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const googleLogin = asyncHandler(async (req: Request, res: Response) => {
-  const { token } = req.body;
+  const { token, force_logout_device_id } = req.body as {
+    token: string;
+    force_logout_device_id?: string;
+  };
 
   if (!token) throw new ApiError(400, "Google token is required");
 
@@ -327,10 +401,54 @@ const googleLogin = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (activeDeviceCount >= 3) {
-    throw new ApiError(
-      403,
-      "You are already logged in on 3 devices. Please log out from any device and try again.",
-    );
+    const forcedDeviceId = force_logout_device_id?.trim();
+
+    if (forcedDeviceId) {
+      const revokedSession = await prisma.userSession.updateMany({
+        where: {
+          user_id: user.id,
+          device_id: forcedDeviceId,
+          is_revoked: false,
+        },
+        data: {
+          is_revoked: true,
+          last_used_at: new Date(),
+        },
+      });
+
+      if (revokedSession.count === 0) {
+        const activeSessions = await getActiveUserSessions(user.id);
+
+        return res
+          .status(403)
+          .json(
+            new ApiResponse(
+              "Invalid device selected. Please choose one of the active devices to sign out.",
+              activeSessions,
+            ),
+          );
+      }
+    }
+
+    const refreshedActiveDeviceCount = await prisma.userSession.count({
+      where: {
+        user_id: user.id,
+        is_revoked: false,
+      },
+    });
+
+    if (refreshedActiveDeviceCount >= 3) {
+      const activeSessions = await getActiveUserSessions(user.id);
+
+      return res
+        .status(403)
+        .json(
+          new ApiResponse(
+            "You are already logged in on 3 devices. Please log out from any one device and try again.",
+            activeSessions,
+          ),
+        );
+    }
   }
 
   const deviceId = crypto.randomBytes(32).toString("hex");
@@ -526,6 +644,62 @@ const logoutOtherSessions = asyncHandler(
   },
 );
 
+const logoutByDeviceId = asyncHandler(async (req: Request, res: Response) => {
+  const { user_id, device_id: currentDeviceId } = req.user as TokenPayload;
+  const rawDeviceId = req.params.device_id;
+  const targetDeviceId = Array.isArray(rawDeviceId)
+    ? rawDeviceId[0]?.trim()
+    : rawDeviceId?.trim();
+
+  if (!targetDeviceId) {
+    throw new ApiError(400, "device_id is required");
+  }
+
+  const targetSession = await prisma.userSession.findFirst({
+    where: {
+      user_id,
+      device_id: targetDeviceId,
+      is_revoked: false,
+    },
+    select: {
+      id: true,
+      device_id: true,
+    },
+  });
+
+  if (!targetSession) {
+    throw new ApiError(404, "Active session not found for this device_id");
+  }
+
+  const result = await prisma.userSession.updateMany({
+    where: {
+      user_id,
+      device_id: targetDeviceId,
+      is_revoked: false,
+    },
+    data: {
+      is_revoked: true,
+      last_used_at: new Date(),
+    },
+  });
+
+  const isCurrentSession = targetDeviceId === currentDeviceId;
+
+  if (isCurrentSession) {
+    res
+      .clearCookie("accessToken", clearCookieOptions)
+      .clearCookie("refreshToken", clearCookieOptions);
+  }
+
+  return res.status(200).json(
+    new ApiResponse("Device session logged out successfully", {
+      device_id: targetDeviceId,
+      is_current: isCurrentSession,
+      logged_out_count: result.count,
+    }),
+  );
+});
+
 const refreshToken = asyncHandler(async (req: Request, res: Response) => {
   const refreshToken = req.cookies?.refreshToken;
 
@@ -645,7 +819,8 @@ const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
 
 const changePassword = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.user_id;
-  const { current_password:currentPassword, new_password:newPassword } = req.body;
+  const { current_password: currentPassword, new_password: newPassword } =
+    req.body;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -786,6 +961,7 @@ export {
   logoutUser,
   getActiveSessions,
   revokeSession,
+  logoutByDeviceId,
   logoutOtherSessions,
   isLogedInUser,
   refreshToken,

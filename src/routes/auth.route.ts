@@ -13,6 +13,7 @@ import {
   googleLogin,
   isLogedInUser,
   loginUser,
+  logoutByDeviceId,
   logoutOtherSessions,
   logoutUser,
   refreshToken,
@@ -53,6 +54,7 @@ router
 router.post("/logout", logoutUser);
 router.route("/sessions").get(getActiveSessions);
 router.route("/sessions/logout-others").post(logoutOtherSessions);
+router.route("/sessions/device/:device_id").delete(logoutByDeviceId);
 router.route("/sessions/:sessionId").delete(revokeSession);
 
 export default router;

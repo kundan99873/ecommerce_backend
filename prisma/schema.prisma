@@ -325,7 +325,6 @@ model Order {
   payment_status PaymentStatus  @default(PENDING) 
   payment_method String?   
   payment_id   String?
-  razorpay_id   String?
   address_id   Int
   address      Address     @relation(fields: [address_id], references: [id])
   items        OrderItem[]

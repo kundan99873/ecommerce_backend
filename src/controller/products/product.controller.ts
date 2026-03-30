@@ -556,6 +556,8 @@ const getTopRatedProducts = asyncHandler(
           },
           select: {
             id: true,
+            color: true,
+            size: true,
             discounted_price: true,
             original_price: true,
             stock: true,
@@ -1057,6 +1059,8 @@ const getSimilarProductsBySlug = asyncHandler(
           },
           select: {
             id: true,
+            color: true,
+            size: true,
             discounted_price: true,
             original_price: true,
             stock: true,
@@ -1402,6 +1406,8 @@ const getRecentlyVisitedProducts = asyncHandler(
                 discounted_price: "asc",
               },
               select: {
+                color: true,
+                size: true,
                 discounted_price: true,
                 original_price: true,
                 stock: true,

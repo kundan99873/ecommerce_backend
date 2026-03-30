@@ -38,7 +38,7 @@ const mapRazorpayPaymentStatus = (razorpayPaymentStatus: string) => {
 
 const fetchRazorpayPaymentStatus = async (paymentId: string) => {
   const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
-  const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+  const razorpayKeySecret = process.env.RAZORPAY_SECRET_KEY;
 
   if (!razorpayKeyId || !razorpayKeySecret) {
     throw new ApiError(
@@ -483,6 +483,7 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
       status: true,
       payment_status: true,
       payment_method: true,
+      payment_id: true,
       created_at: true,
       items: {
         select: {
@@ -551,16 +552,19 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
 
   if (
     order.payment_method?.trim().toLowerCase() === "razorpay" &&
-    order.payment_status === PaymentStatus.PENDING &&
-    paymentIdFromQuery
+    order.payment_status === PaymentStatus.PENDING
   ) {
-    // Best-effort status sync to avoid stale pending state after successful payment.
-    const syncedOrder = await syncOrderRazorpayPaymentStatus(
-      order.id,
-      paymentIdFromQuery,
-    );
-    resolvedOrderStatus = syncedOrder.status;
-    resolvedPaymentStatus = syncedOrder.payment_status;
+    const paymentIdToSync = paymentIdFromQuery || order.payment_id?.trim();
+
+    if (paymentIdToSync) {
+      // Best-effort status sync to avoid stale pending state after successful payment.
+      const syncedOrder = await syncOrderRazorpayPaymentStatus(
+        order.id,
+        paymentIdToSync,
+      );
+      resolvedOrderStatus = syncedOrder.status;
+      resolvedPaymentStatus = syncedOrder.payment_status;
+    }
   }
 
   const formattedOrder = {
@@ -820,17 +824,6 @@ const syncOrderPaymentStatus = asyncHandler(
 
     const normalizedPaymentId = payment_id?.trim();
 
-    if (!normalizedPaymentId) {
-      throw new ApiError(400, "payment_id is required");
-    }
-
-    if (!normalizedPaymentId.startsWith("pay_")) {
-      throw new ApiError(
-        400,
-        "payment_id must be a Razorpay payment ID (starts with pay_)",
-      );
-    }
-
     const order = await prisma.order.findFirst({
       where: {
         order_number: order_number as string,
@@ -842,6 +835,7 @@ const syncOrderPaymentStatus = asyncHandler(
         status: true,
         payment_status: true,
         payment_method: true,
+        payment_id: true,
       },
     });
 
@@ -853,9 +847,22 @@ const syncOrderPaymentStatus = asyncHandler(
       throw new ApiError(400, "Order payment method is not Razorpay");
     }
 
+    const paymentIdToSync = normalizedPaymentId || order.payment_id?.trim();
+
+    if (!paymentIdToSync) {
+      throw new ApiError(400, "payment_id is required");
+    }
+
+    if (!paymentIdToSync.startsWith("pay_")) {
+      throw new ApiError(
+        400,
+        "payment_id must be a Razorpay payment ID (starts with pay_)",
+      );
+    }
+
     const updatedOrder = await syncOrderRazorpayPaymentStatus(
       order.id,
-      normalizedPaymentId,
+      paymentIdToSync,
     );
 
     return res.status(200).json(
@@ -864,7 +871,7 @@ const syncOrderPaymentStatus = asyncHandler(
         status: updatedOrder.status,
         payment_status: updatedOrder.payment_status,
         payment_method: updatedOrder.payment_method,
-        payment_id: normalizedPaymentId,
+        payment_id: paymentIdToSync,
         updated_at: updatedOrder.updated_at,
       }),
     );

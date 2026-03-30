@@ -20,10 +20,20 @@ const verifyRefreshToken = (token: string): TokenPayload => {
 };
 
 const assertActiveSession = async (userId: number, deviceId: string) => {
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new ApiError(401, "Invalid session user");
+  }
+
+  const normalizedDeviceId = deviceId?.trim();
+
+  if (!normalizedDeviceId) {
+    throw new ApiError(401, "Invalid session device");
+  }
+
   const session = await prisma.userSession.findFirst({
     where: {
       user_id: userId,
-      device_id: deviceId,
+      device_id: normalizedDeviceId,
       is_revoked: false,
     },
     select: {

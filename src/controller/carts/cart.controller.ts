@@ -291,12 +291,9 @@ const evaluateCouponForCart = async ({
       ? Promise.resolve(0)
       : prisma.couponUsage.count({ where: { coupon_id: coupon.id } });
 
-  const userUsageCountPromise =
-    coupon.max_uses_per_user == null
-      ? Promise.resolve(0)
-      : prisma.couponUsage.count({
-          where: { coupon_id: coupon.id, user_id: userId },
-        });
+  const userUsageCountPromise = prisma.couponUsage.count({
+    where: { coupon_id: coupon.id, user_id: userId },
+  });
 
   const [totalUsageCount, userUsageCount] = await Promise.all([
     totalUsageCountPromise,
@@ -305,6 +302,7 @@ const evaluateCouponForCart = async ({
 
   const isUnderGlobalUsageLimit =
     coupon.max_uses == null || totalUsageCount < coupon.max_uses;
+  const isFirstTimeUserUsage = userUsageCount === 0;
   const isUnderUserUsageLimit =
     coupon.max_uses_per_user == null ||
     userUsageCount < coupon.max_uses_per_user;
@@ -324,6 +322,7 @@ const evaluateCouponForCart = async ({
     isWithinDate &&
     meetsMinPurchase &&
     isUnderGlobalUsageLimit &&
+    isFirstTimeUserUsage &&
     isUnderUserUsageLimit &&
     isUserEligible &&
     isProductEligible

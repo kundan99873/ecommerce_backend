@@ -36,7 +36,7 @@ const mapRazorpayPaymentStatus = (razorpayPaymentStatus: string) => {
   };
 };
 
-const fetchRazorpayPaymentStatus = async (razorpayId: string) => {
+const fetchRazorpayPaymentStatus = async (paymentId: string) => {
   const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
   const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
 
@@ -52,7 +52,7 @@ const fetchRazorpayPaymentStatus = async (razorpayId: string) => {
   ).toString("base64");
 
   const response = await fetch(
-    `https://api.razorpay.com/v1/payments/${encodeURIComponent(razorpayId)}`,
+    `https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`,
     {
       method: "GET",
       headers: {
@@ -84,26 +84,61 @@ const fetchRazorpayPaymentStatus = async (razorpayId: string) => {
   return mapRazorpayPaymentStatus(payload.status);
 };
 
+const syncOrderRazorpayPaymentStatus = async (
+  orderId: number,
+  paymentId: string,
+) => {
+  const resolvedStatus = await fetchRazorpayPaymentStatus(paymentId);
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: resolvedStatus.orderStatus,
+      payment_status: resolvedStatus.paymentStatus,
+    },
+    select: {
+      order_number: true,
+      status: true,
+      payment_status: true,
+      payment_method: true,
+      updated_at: true,
+    },
+  });
+};
+
 const addOrder = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.user_id as number;
 
-  const { address_id, coupon_code, payment_method, razorpay_id } = req.body as {
+  const { address_id, coupon_code, payment_method, payment_id } = req.body as {
     address_id: number;
     coupon_code?: string;
     payment_method?: string;
-    razorpay_id?: string;
+    payment_id?: string;
   };
   const normalizedCouponCode = coupon_code?.trim().toUpperCase();
   const normalizedPaymentMethod = payment_method?.trim().toLowerCase();
-  const normalizedRazorpayId = razorpay_id?.trim();
+  const normalizedPaymentId = payment_id?.trim();
 
   if (!address_id) throw new ApiError(400, "Address ID is required");
   if (coupon_code !== undefined && !normalizedCouponCode) {
     throw new ApiError(400, "coupon_code must be a non-empty string");
   }
-  if (normalizedPaymentMethod === "razorpay" && !normalizedRazorpayId) {
-    throw new ApiError(400, "razorpay_id is required for Razorpay payment");
+  if (normalizedPaymentMethod === "razorpay" && !normalizedPaymentId) {
+    throw new ApiError(400, "payment_id is required for Razorpay payment");
   }
+  if (normalizedPaymentMethod === "razorpay" && normalizedPaymentId) {
+    if (!normalizedPaymentId.startsWith("pay_")) {
+      throw new ApiError(
+        400,
+        "payment_id must be a Razorpay payment ID (starts with pay_)",
+      );
+    }
+  }
+
+  const paymentIdForOrder =
+    normalizedPaymentMethod === "razorpay"
+      ? (normalizedPaymentId ?? null)
+      : null;
 
   const address = await prisma.address.findFirst({
     where: { id: Number(address_id), user_id: userId, is_active: true },
@@ -229,6 +264,18 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
       }
     }
 
+    const hasUserAlreadyUsedCoupon =
+      (await prisma.couponUsage.count({
+        where: { coupon_id: coupon.id, user_id: userId },
+      })) > 0;
+
+    if (hasUserAlreadyUsedCoupon) {
+      throw new ApiError(
+        400,
+        "You have already used this coupon and cannot use it again",
+      );
+    }
+
     if (coupon.max_uses_per_user) {
       const userUsedCount = await prisma.couponUsage.count({
         where: { coupon_id: coupon.id, user_id: userId },
@@ -273,9 +320,9 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
   let orderStatus: OrderStatus = OrderStatus.PENDING;
   let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
 
-  if (normalizedPaymentMethod === "razorpay" && normalizedRazorpayId) {
+  if (normalizedPaymentMethod === "razorpay" && normalizedPaymentId) {
     const resolvedStatus =
-      await fetchRazorpayPaymentStatus(normalizedRazorpayId);
+      await fetchRazorpayPaymentStatus(normalizedPaymentId);
     orderStatus = resolvedStatus.orderStatus;
     paymentStatus = resolvedStatus.paymentStatus;
   }
@@ -291,6 +338,7 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
         coupon_id: couponId,
         address_id: Number(address_id),
         payment_method: normalizedPaymentMethod || null,
+        payment_id: paymentIdForOrder,
         status: orderStatus,
         payment_status: paymentStatus,
         items: {
@@ -302,14 +350,6 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
         },
       },
     });
-
-    if (normalizedPaymentMethod === "razorpay" && normalizedRazorpayId) {
-      await tx.$executeRaw`
-        UPDATE "Order"
-        SET "razorpay_id" = ${normalizedRazorpayId}
-        WHERE "id" = ${order.id}
-      `;
-    }
 
     for (const item of cart.items) {
       await tx.productVariant.update({
@@ -435,6 +475,7 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
   const order = await prisma.order.findFirst({
     where: { order_number: order_number as string, user_id: userId },
     select: {
+      id: true,
       order_number: true,
       total_amount: true,
       discount_amount: true,
@@ -503,13 +544,32 @@ const getOrderDetails = asyncHandler(async (req: Request, res: Response) => {
     return res.status(404).json({ message: "Order not found" });
   }
 
+  const paymentIdFromQuery =
+    typeof req.query.payment_id === "string" ? req.query.payment_id.trim() : "";
+  let resolvedOrderStatus = order.status;
+  let resolvedPaymentStatus = order.payment_status;
+
+  if (
+    order.payment_method?.trim().toLowerCase() === "razorpay" &&
+    order.payment_status === PaymentStatus.PENDING &&
+    paymentIdFromQuery
+  ) {
+    // Best-effort status sync to avoid stale pending state after successful payment.
+    const syncedOrder = await syncOrderRazorpayPaymentStatus(
+      order.id,
+      paymentIdFromQuery,
+    );
+    resolvedOrderStatus = syncedOrder.status;
+    resolvedPaymentStatus = syncedOrder.payment_status;
+  }
+
   const formattedOrder = {
     order_number: order.order_number,
     total_amount: order.total_amount,
     discount_amount: order.discount_amount,
     final_amount: order.final_amount,
-    status: order.status,
-    payment_status: order.payment_status,
+    status: resolvedOrderStatus,
+    payment_status: resolvedPaymentStatus,
     payment_method: order.payment_method,
     purchase_date: order.created_at,
     items: order.items.map((item) => ({
@@ -748,10 +808,74 @@ const updateOrderStatus = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse("Order status updated successfully", updatedOrder));
 });
 
+const syncOrderPaymentStatus = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user?.user_id;
+    const { order_number } = req.params;
+    const { payment_id } = req.body as { payment_id?: string };
+
+    if (typeof userId !== "number" || Number.isNaN(userId)) {
+      throw new ApiError(401, "Authentication required");
+    }
+
+    const normalizedPaymentId = payment_id?.trim();
+
+    if (!normalizedPaymentId) {
+      throw new ApiError(400, "payment_id is required");
+    }
+
+    if (!normalizedPaymentId.startsWith("pay_")) {
+      throw new ApiError(
+        400,
+        "payment_id must be a Razorpay payment ID (starts with pay_)",
+      );
+    }
+
+    const order = await prisma.order.findFirst({
+      where: {
+        order_number: order_number as string,
+        user_id: userId,
+      },
+      select: {
+        id: true,
+        order_number: true,
+        status: true,
+        payment_status: true,
+        payment_method: true,
+      },
+    });
+
+    if (!order) {
+      throw new ApiError(404, "Order not found");
+    }
+
+    if (order.payment_method?.trim().toLowerCase() !== "razorpay") {
+      throw new ApiError(400, "Order payment method is not Razorpay");
+    }
+
+    const updatedOrder = await syncOrderRazorpayPaymentStatus(
+      order.id,
+      normalizedPaymentId,
+    );
+
+    return res.status(200).json(
+      new ApiResponse("Order payment status synced successfully", {
+        order_number: updatedOrder.order_number,
+        status: updatedOrder.status,
+        payment_status: updatedOrder.payment_status,
+        payment_method: updatedOrder.payment_method,
+        payment_id: normalizedPaymentId,
+        updated_at: updatedOrder.updated_at,
+      }),
+    );
+  },
+);
+
 export {
   addOrder,
   getUserOrders,
   getOrderDetails,
   getAllOrders,
   updateOrderStatus,
+  syncOrderPaymentStatus,
 };

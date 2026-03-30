@@ -931,12 +931,26 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
         is_global: true,
       };
 
+  const couponUsageFilter: Prisma.CouponWhereInput = userId
+    ? {
+        usages: {
+          none: {
+            user_id: userId,
+          },
+        },
+      }
+    : {};
+
   const coupons = await prisma.coupon.findMany({
     where: {
       is_active: true,
       start_date: { lte: new Date() },
       end_date: { gte: new Date() },
-      AND: [couponAudienceFilter, productCouponApplicability],
+      AND: [
+        couponAudienceFilter,
+        productCouponApplicability,
+        couponUsageFilter,
+      ],
     },
     select: {
       code: true,
@@ -973,6 +987,138 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
     }),
   );
 });
+
+const getSimilarProductsBySlug = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rawSlug = req.params.slug;
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug;
+
+    if (!slug) {
+      throw new ApiError(400, "slug is required");
+    }
+
+    const rawLimit = req.query.limit;
+    const parsedLimit = Number(rawLimit ?? 8);
+    const limit = Number.isInteger(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 20)
+      : 8;
+
+    const currentProduct = await prisma.product.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        category_id: true,
+        brand: true,
+      },
+    });
+
+    if (!currentProduct) {
+      throw new ApiError(404, "Product not found");
+    }
+
+    const similarFilter: Prisma.ProductWhereInput = {
+      id: { not: currentProduct.id },
+      is_active: true,
+      OR: [
+        { category_id: currentProduct.category_id },
+        ...(currentProduct.brand
+          ? [
+              {
+                brand: {
+                  equals: currentProduct.brand,
+                  mode: "insensitive" as const,
+                },
+              },
+            ]
+          : []),
+      ],
+    };
+
+    const similarProducts = await prisma.product.findMany({
+      where: similarFilter,
+      take: limit,
+      orderBy: [{ is_trending: "desc" }, { created_at: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        brand: true,
+        category: {
+          select: {
+            name: true,
+            slug: true,
+          },
+        },
+        variants: {
+          take: 1,
+          orderBy: {
+            discounted_price: "asc",
+          },
+          select: {
+            id: true,
+            discounted_price: true,
+            original_price: true,
+            stock: true,
+            sku: true,
+            images: {
+              take: 1,
+              select: {
+                id: true,
+                image_url: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (similarProducts.length === 0) {
+      return res
+        .status(200)
+        .json(new ApiResponse("Similar products retrieved successfully", []));
+    }
+
+    const similarProductIds = similarProducts.map((product) => product.id);
+
+    const reviewGroups = await prisma.review.groupBy({
+      by: ["product_id"],
+      where: {
+        product_id: {
+          in: similarProductIds,
+        },
+      },
+      _avg: {
+        rating: true,
+      },
+      _count: {
+        _all: true,
+      },
+    });
+
+    const ratingMap = new Map(
+      reviewGroups.map((group) => [
+        group.product_id,
+        {
+          average_rating: Number((group._avg.rating ?? 0).toFixed(2)),
+          total_reviews: group._count._all,
+        },
+      ]),
+    );
+
+    const result = similarProducts.map((product) => ({
+      ...product,
+      ...(ratingMap.get(product.id) ?? {
+        average_rating: 0,
+        total_reviews: 0,
+      }),
+    }));
+
+    return res
+      .status(200)
+      .json(new ApiResponse("Similar products retrieved successfully", result));
+  },
+);
 
 const checkProductAvailabilityByPincode = asyncHandler(
   async (req: Request, res: Response) => {
@@ -1224,7 +1370,7 @@ const trackRecentlyVisitedProduct = asyncHandler(
 const getRecentlyVisitedProducts = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user!.user_id;
-    console.log({ userId });
+    console.log({ userId, a: 10 });
 
     const recentlyViewedRows = await prisma.recentlyViewedProduct.findMany({
       where: {
@@ -1399,6 +1545,7 @@ export {
   addProduct,
   getTopRatedProducts,
   getProductBySlug,
+  getSimilarProductsBySlug,
   checkProductAvailabilityByPincode,
   getProductUnserviceablePincodes,
   addProductUnserviceablePincodes,

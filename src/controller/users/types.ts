@@ -17,11 +17,6 @@ export interface getUserQuery {
   sort?: "asc" | "desc";
 }
 
-export interface AdminDashboardQuery {
-  from?: string;
-  to?: string;
-}
-
 export interface addAddressBody {
   first_name: string;
   last_name: string;

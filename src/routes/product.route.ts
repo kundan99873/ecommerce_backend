@@ -7,6 +7,7 @@ import {
   deleteProduct,
   getAllProducts,
   getProductBySlug,
+  getSimilarProductsBySlug,
   getTopRatedProducts,
   getRecentlyVisitedProducts,
   getProductWithoutVariants,
@@ -38,8 +39,8 @@ router.route("/top-rated").get(verifyOptionalToken, getTopRatedProducts);
 router.route("/:slug/availability").get(checkProductAvailabilityByPincode);
 router.route("/:slug/reviews").get(verifyOptionalToken, getProductReviews);
 router
-  .route("/:slug")
-  .get(verifyOptionalToken, getProductBySlug);
+  .route("/:slug/similar")
+  .get(verifyOptionalToken, getSimilarProductsBySlug);
 
 router.use(verifyUserToken);
 router.route("/search/recent").get(getRecentSearches);
@@ -53,6 +54,7 @@ router.route("/recently-visited").get(getRecentlyVisitedProducts);
 
 router
   .route("/:slug")
+  .get(verifyOptionalToken, getProductBySlug)
   .patch(upload.any(), verifyAdminToken, updateProduct)
   .delete(deleteProduct);
 
@@ -66,6 +68,5 @@ router
 router
   .route("/:slug/pincodes/:pincode")
   .delete(removeProductUnserviceablePincode);
-// router.route("/:slug").post(verifyAdminToken, updateProduct);
 
 export default router;

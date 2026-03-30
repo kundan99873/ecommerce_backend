@@ -70,12 +70,28 @@ const deleteAddress = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.user_id;
   const addressId = parseInt(req.params.id as string);
 
+  if (!Number.isInteger(addressId) || addressId <= 0) {
+    throw new ApiError(400, "Invalid address ID");
+  }
+
   const address = await prisma.address.findFirst({
     where: { id: addressId, user_id: userId as number },
   });
 
   if (!address) {
     throw new ApiError(404, "Address not found");
+  }
+
+  const orderUsingAddress = await prisma.order.findFirst({
+    where: { address_id: addressId, user_id: userId as number },
+    select: { id: true },
+  });
+
+  if (orderUsingAddress) {
+    throw new ApiError(
+      400,
+      "Address is linked to an order and cannot be deleted",
+    );
   }
 
   await prisma.address.delete({

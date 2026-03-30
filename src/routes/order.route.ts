@@ -8,6 +8,7 @@ import {
   getAllOrders,
   getOrderDetails,
   getUserOrders,
+  syncOrderPaymentStatus,
   updateOrderStatus,
 } from "../controller/orders/order.controller.js";
 
@@ -17,6 +18,7 @@ router.use(verifyUserToken);
 router.route("/all").get(verifyAdminToken, getAllOrders);
 router.route("/").post(addOrder).get(getUserOrders);
 router.route("/:order_number/status").patch(updateOrderStatus);
+router.route("/:order_number/payment/sync").post(syncOrderPaymentStatus);
 router.route("/:order_number").get(getOrderDetails);
 
 export default router;

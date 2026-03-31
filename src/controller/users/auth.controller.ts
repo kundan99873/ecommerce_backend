@@ -82,6 +82,10 @@ const getActiveUserSessions = async (userId: number) => {
   return sessions;
 };
 
+type ActiveUserSession = Awaited<
+  ReturnType<typeof getActiveUserSessions>
+>[number];
+
 const registerUser = asyncHandler(async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
 
@@ -536,29 +540,12 @@ const logoutUser = asyncHandler(async (req: Request, res: Response) => {
 const getActiveSessions = asyncHandler(async (req: Request, res: Response) => {
   const { user_id, device_id } = req.user as TokenPayload;
 
-  const sessions = await prisma.userSession.findMany({
-    where: {
-      user_id,
-      is_revoked: false,
-    },
-    orderBy: {
-      last_used_at: "desc",
-    },
-    select: {
-      id: true,
-      device_id: true,
-      device_name: true,
-      user_agent: true,
-      ip_address: true,
-      created_at: true,
-      last_used_at: true,
-    },
-  });
+  const sessions = await getActiveUserSessions(user_id);
 
   return res.status(200).json(
     new ApiResponse(
       "Active sessions fetched successfully",
-      sessions.map((session) => ({
+      sessions.map((session: ActiveUserSession) => ({
         ...session,
         is_current: session.device_id === device_id,
       })),

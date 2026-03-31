@@ -53,6 +53,7 @@ router
 
 router.post("/logout", logoutUser);
 router.route("/sessions").get(getActiveSessions);
+router.route("/logged-in-devices").get(getActiveSessions);
 router.route("/sessions/logout-others").post(logoutOtherSessions);
 router.route("/sessions/device/:device_id").delete(logoutByDeviceId);
 router.route("/sessions/:sessionId").delete(revokeSession);

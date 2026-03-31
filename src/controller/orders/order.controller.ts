@@ -5,7 +5,7 @@ import {
   DiscountType,
   OrderStatus,
   PaymentStatus,
-} from "../../../generated/prisma/enums.js";
+} from "@prisma/client";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import type { OrderPayload } from "./order.types.js";

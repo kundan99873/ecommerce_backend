@@ -15,7 +15,7 @@ import {
   productAvailabilityQuerySchema,
   productQuerySchema,
 } from "../../validations/product.validation.js";
-import type { Prisma } from "../../../generated/prisma/client.js";
+import type { Prisma } from "@prisma/client";
 import cloudinary from "../../config/cloudinary.config.js";
 
 const RECENTLY_VISITED_LIMIT = 6;

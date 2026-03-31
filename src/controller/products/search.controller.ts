@@ -3,7 +3,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
-import type { Prisma } from "../../../generated/prisma/client.js";
+import type { Prisma } from "@prisma/client";
 
 const searchProducts = asyncHandler(async (req: Request, res: Response) => {
   const { search, category, brand, sort, page = 1, limit = 20 } = req.query;

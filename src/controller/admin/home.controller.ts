@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { OrderStatus, PaymentStatus } from "../../../generated/prisma/enums.js";
+import { OrderStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../../libs/prisma.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";

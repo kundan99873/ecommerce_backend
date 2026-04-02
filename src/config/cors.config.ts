@@ -2,8 +2,10 @@
 import cors, { type CorsOptions } from "cors";
 
 const env = process.env.NODE_ENV || "development";
+const frontendUrl = process.env.FRONTEND_URL!;
 const whitelist: string[] = [
   env === "development" ? "http://localhost:5173" : "",
+  frontendUrl,
 ].filter(Boolean);
 
 console.log(whitelist)

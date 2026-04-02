@@ -52,18 +52,35 @@
             <tr>
               <td style="padding: 24px">
                 <h1 style="margin: 0 0 12px 0; font-size: 22px">
-                  Your email was changed
+                  Email address updated
                 </h1>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
-                  Hi <%= userName %>, your account email was updated from
+                  Hello <%= userName %>, your account email address was changed
+                  from
                   <strong><%= oldEmail %></strong> to
                   <strong><%= newEmail %></strong>.
                 </p>
-                <p style="margin: 0; line-height: 1.6">
-                  If you did not make this change, contact support immediately
-                  at
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  If you did not authorize this update, please contact support
+                  immediately at
                   <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a>.
                 </p>
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  Visit your account dashboard:
+                  <a href="<%= frontendUrl %>"><%= frontendUrl %></a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 16px 24px;
+                  background: #f9fafb;
+                  color: #6b7280;
+                  font-size: 12px;
+                "
+              >
+                <%= commonSentence %>
               </td>
             </tr>
           </table>

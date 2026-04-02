@@ -55,7 +55,8 @@
                   New sign-in to your account
                 </h1>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
-                  Hi <%= userName %>, a new login was detected.
+                  Hello <%= userName %>, we noticed a new sign-in to your
+                  account.
                 </p>
                 <ul style="margin: 0 0 14px 18px; padding: 0; line-height: 1.8">
                   <li>Time: <%= loginTime %></li>
@@ -63,11 +64,27 @@
                   <li>IP address: <%= ipAddress %></li>
                   <li>Location: <%= location %></li>
                 </ul>
-                <p style="margin: 0; line-height: 1.6">
-                  If this was not you, reset your password immediately and
-                  contact
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  If this activity was not from you, please reset your password
+                  immediately and contact
                   <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a>.
                 </p>
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  Review your account activity at
+                  <a href="<%= frontendUrl %>"><%= frontendUrl %></a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 16px 24px;
+                  background: #f9fafb;
+                  color: #6b7280;
+                  font-size: 12px;
+                "
+              >
+                <%= commonSentence %>
               </td>
             </tr>
           </table>

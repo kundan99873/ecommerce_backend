@@ -55,16 +55,34 @@
                   Account temporarily locked
                 </h1>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
-                  Hi <%= userName %>, we detected multiple failed login attempts
-                  and temporarily locked your account.
+                  Hello <%= userName %>, we detected multiple unsuccessful
+                  sign-in attempts and have temporarily locked your account to
+                  protect your information.
                 </p>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
-                  Locked until: <strong><%= lockedUntil %></strong>
+                  Lock expiry time: <strong><%= lockedUntil %></strong>
                 </p>
-                <p style="margin: 0; line-height: 1.6">
-                  If this was not you, contact support at
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  If this activity was not initiated by you, contact our support
+                  team immediately at
                   <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a>.
                 </p>
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  You can return to <%= appName %> once the lock period ends:
+                  <a href="<%= frontendUrl %>"><%= frontendUrl %></a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 16px 24px;
+                  background: #f9fafb;
+                  color: #6b7280;
+                  font-size: 12px;
+                "
+              >
+                <%= commonSentence %>
               </td>
             </tr>
           </table>

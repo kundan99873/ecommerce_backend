@@ -52,14 +52,18 @@
             <tr>
               <td style="padding: 24px">
                 <h1 style="margin: 0 0 12px 0; font-size: 22px">
-                  Welcome, <%= userName %>!
+                  Welcome, <%= userName %>
                 </h1>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
                   Your account has been created successfully. You can now sign
-                  in and start shopping.
+                  in and start exploring products.
+                </p>
+                <p style="margin: 0 0 14px 0; line-height: 1.6">
+                  Visit our website:
+                  <a href="<%= frontendUrl %>"><%= frontendUrl %></a>
                 </p>
                 <p style="margin: 0; line-height: 1.6">
-                  Need help? Reach us at
+                  Need assistance? Reach us at
                   <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a>.
                 </p>
               </td>
@@ -73,7 +77,8 @@
                   font-size: 12px;
                 "
               >
-                This is an automated message from <%= appName %>.
+                This is an automated message from <%= appName %>. <%=
+                commonSentence %>
               </td>
             </tr>
           </table>

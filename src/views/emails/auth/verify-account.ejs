@@ -55,11 +55,12 @@
                   Verify your email
                 </h1>
                 <p style="margin: 0 0 14px 0; line-height: 1.6">
-                  Hi <%= userName %>, please verify your account to activate
-                  secure login and order access.
+                  Hello <%= userName %>, please verify your email address to
+                  activate your account and secure access.
                 </p>
                 <p style="margin: 0 0 20px 0; line-height: 1.6">
-                  This link will expire in <%= expiresInMinutes %> minutes.
+                  For security reasons, this link will expire in <%=
+                  expiresInMinutes %> minutes.
                 </p>
                 <a
                   href="<%= verifyUrl %>"
@@ -96,7 +97,10 @@
                   font-size: 12px;
                 "
               >
-                If you did not create this account, ignore this email.
+                If you did not create this account, ignore this email. <%=
+                commonSentence %> Visit
+                <a href="<%= frontendUrl %>"><%= appName %></a> for more
+                information.
               </td>
             </tr>
           </table>

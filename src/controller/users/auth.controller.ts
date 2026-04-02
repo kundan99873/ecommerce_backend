@@ -24,9 +24,10 @@ import {
 import { mailDefaults } from "../../config/nodemailer.config.js";
 // import { uploadMediaToCloudinary } from "../helper/uploadFileToCloudinary.js";
 
-const frontendBaseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
 const verifyEmailPath = process.env.VERIFY_EMAIL_PATH || "/verify-email";
 const resetPasswordPath = process.env.RESET_PASSWORD_PATH || "/reset-password";
+const commonEmailSentence =
+  "For your security, never share your password or verification codes with anyone.";
 
 const sendAuthTemplateEmail = async (
   to: string,
@@ -47,6 +48,8 @@ const sendAuthTemplateEmail = async (
     data: {
       appName: mailDefaults.appName,
       supportEmail: mailDefaults.supportEmail,
+      frontendUrl: mailDefaults.frontendUrl,
+      commonSentence: commonEmailSentence,
       ...data,
     },
   });
@@ -132,7 +135,7 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
 
   await sendAuthTemplateEmail(user.email, "verifyAccount", {
     userName: user.name,
-    verifyUrl: `${frontendBaseUrl}${verifyEmailPath}?token=${verifyToken}`,
+    verifyUrl: `${mailDefaults.frontendUrl}${verifyEmailPath}?token=${verifyToken}`,
     expiresInMinutes: 10,
   });
 
@@ -218,7 +221,7 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 
     await sendAuthTemplateEmail(email, "verifyAccount", {
       userName: user.name || "User",
-      verifyUrl: `${frontendBaseUrl}${verifyEmailPath}?token=${verifyToken}`,
+      verifyUrl: `${mailDefaults.frontendUrl}${verifyEmailPath}?token=${verifyToken}`,
       expiresInMinutes: 10,
     });
 
@@ -873,7 +876,7 @@ const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
 
   await sendAuthTemplateEmail(user.email, "forgotPassword", {
     userName: user.name || "User",
-    resetUrl: `${frontendBaseUrl}${resetPasswordPath}?token=${resetToken}`,
+    resetUrl: `${mailDefaults.frontendUrl}${resetPasswordPath}?token=${resetToken}`,
     expiresInMinutes: 10,
   });
 

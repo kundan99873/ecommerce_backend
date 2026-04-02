@@ -20,4 +20,5 @@ export const mailDefaults = {
   supportEmail:
     process.env.SUPPORT_EMAIL || process.env.SMTP_USER || "support@example.com",
   fromName: process.env.MAIL_FROM_NAME || process.env.APP_NAME || "Ecommerce",
+  frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
 };

@@ -41,6 +41,11 @@ router.route("/:slug/reviews").get(verifyOptionalToken, getProductReviews);
 router
   .route("/:slug/similar")
   .get(verifyOptionalToken, getSimilarProductsBySlug);
+  router
+    .route("/:slug")
+    .get(verifyOptionalToken, getProductBySlug)
+    .patch(upload.any(), verifyAdminToken, updateProduct)
+    .delete(deleteProduct);
 
 router.use(verifyUserToken);
 router.route("/search/recent").get(getRecentSearches);
@@ -52,11 +57,6 @@ router
 router.route("/recently-visited/:slug").post(trackRecentlyVisitedProduct);
 router.route("/recently-visited").get(getRecentlyVisitedProducts);
 
-router
-  .route("/:slug")
-  .get(verifyOptionalToken, getProductBySlug)
-  .patch(upload.any(), verifyAdminToken, updateProduct)
-  .delete(deleteProduct);
 
 router.use(verifyAdminToken);
 router.route("/add").post(upload.any(), addProduct);

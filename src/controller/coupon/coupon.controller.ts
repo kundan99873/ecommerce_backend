@@ -5,6 +5,31 @@ import { ApiResponse } from "../../utils/apiResponse.js";
 import { ApiError } from "../../utils/apiError.js";
 import type { CouponInput, CouponQuery } from "./coupon.types.js";
 
+const findCouponByIdentifier = async (rawIdentifier: string | undefined) => {
+  const couponIdentifier = rawIdentifier?.trim();
+
+  if (!couponIdentifier) {
+    throw new ApiError(400, "Invalid coupon identifier");
+  }
+
+  const byCode = await prisma.coupon.findUnique({
+    where: { code: couponIdentifier.toUpperCase() },
+  });
+
+  if (byCode) {
+    return byCode;
+  }
+
+  const parsedId = Number(couponIdentifier);
+  if (!Number.isNaN(parsedId) && Number.isInteger(parsedId)) {
+    return prisma.coupon.findUnique({
+      where: { id: parsedId },
+    });
+  }
+
+  return null;
+};
+
 const addCoupon = asyncHandler(async (req: Request, res: Response) => {
   const data = req.body as CouponInput;
 
@@ -57,7 +82,7 @@ const addCoupon = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getCoupons = asyncHandler(async (req: Request, res: Response) => {
-  const { page = 1, limit = 10, search } = req.query as CouponQuery;
+  const { page = 1, limit = 10, search, is_active } = req.query as CouponQuery;
   const skip = (Number(page) - 1) * Number(limit);
 
   const where: Record<string, any> = {};
@@ -65,6 +90,13 @@ const getCoupons = asyncHandler(async (req: Request, res: Response) => {
   if (search) {
     where.code = { contains: search.toString(), mode: "insensitive" };
   }
+
+  if (is_active !== undefined) {
+    const normalizedIsActive = is_active.toString().toLowerCase();
+    where.is_active = ["true", "1", "yes"].includes(normalizedIsActive);
+  }
+
+  const totalCounts = await prisma.coupon.count({ where });
 
   const coupons = await prisma.coupon.findMany({
     where,
@@ -75,7 +107,9 @@ const getCoupons = asyncHandler(async (req: Request, res: Response) => {
 
   res
     .status(200)
-    .json(new ApiResponse("Coupons retrieved successfully", coupons));
+    .json(
+      new ApiResponse("Coupons retrieved successfully", coupons, totalCounts),
+    );
 });
 
 const getCouponById = asyncHandler(async (req: Request, res: Response) => {
@@ -99,20 +133,12 @@ const getCouponById = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
-  const rawCouponCode = req.params.code;
-  const couponCode = (
-    Array.isArray(rawCouponCode) ? rawCouponCode[0] : rawCouponCode
-  )
-    ?.trim()
-    .toUpperCase();
+  const rawCouponIdentifier = req.params.code;
+  const couponIdentifier = Array.isArray(rawCouponIdentifier)
+    ? rawCouponIdentifier[0]
+    : rawCouponIdentifier;
 
-  if (!couponCode) {
-    throw new ApiError(400, "Invalid coupon code");
-  }
-
-  const existing = await prisma.coupon.findUnique({
-    where: { code: couponCode },
-  });
+  const existing = await findCouponByIdentifier(couponIdentifier);
 
   if (!existing) {
     throw new ApiError(404, "Coupon not found");
@@ -181,20 +207,12 @@ const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const deleteCoupon = asyncHandler(async (req: Request, res: Response) => {
-  const rawCouponCode = req.params.code;
-  const couponCode = (
-    Array.isArray(rawCouponCode) ? rawCouponCode[0] : rawCouponCode
-  )
-    ?.trim()
-    .toUpperCase();
+  const rawCouponIdentifier = req.params.code;
+  const couponIdentifier = Array.isArray(rawCouponIdentifier)
+    ? rawCouponIdentifier[0]
+    : rawCouponIdentifier;
 
-  if (!couponCode) {
-    throw new ApiError(400, "Invalid coupon code");
-  }
-
-  const existing = await prisma.coupon.findUnique({
-    where: { code: couponCode },
-  });
+  const existing = await findCouponByIdentifier(couponIdentifier);
 
   if (!existing) {
     throw new ApiError(404, "Coupon not found");

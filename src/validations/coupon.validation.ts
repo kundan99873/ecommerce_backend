@@ -3,7 +3,7 @@ import { z } from "zod";
 const addCouponSchema = z.object({
   code: z.string().min(1, "Coupon code is required"),
   description: z.string().optional(),
-  discount_type: z.enum(["PERCENTAGE", "FIXED"]).optional(),
+  discount_type: z.enum(["PERCENTAGE", "FIXED"]),
   discount_value: z.number().min(0, "Discount value must be a positive number"),
   start_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
     message: "Invalid date format",

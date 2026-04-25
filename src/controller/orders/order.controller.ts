@@ -1,11 +1,7 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../libs/prisma.js";
-import {
-  DiscountType,
-  OrderStatus,
-  PaymentStatus,
-} from "@prisma/client";
+import { DiscountType, OrderStatus, PaymentStatus } from "@prisma/client";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import type { OrderPayload } from "./order.types.js";
@@ -262,18 +258,6 @@ const addOrder = asyncHandler(async (req: Request, res: Response) => {
       if (usedCount >= coupon.max_uses) {
         throw new ApiError(400, "Coupon usage limit reached");
       }
-    }
-
-    const hasUserAlreadyUsedCoupon =
-      (await prisma.couponUsage.count({
-        where: { coupon_id: coupon.id, user_id: userId },
-      })) > 0;
-
-    if (hasUserAlreadyUsedCoupon) {
-      throw new ApiError(
-        400,
-        "You have already used this coupon and cannot use it again",
-      );
     }
 
     if (coupon.max_uses_per_user) {

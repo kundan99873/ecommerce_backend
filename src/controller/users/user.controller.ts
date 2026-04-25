@@ -51,23 +51,11 @@ const updateUserProfile = asyncHandler(async (req: Request, res: Response) => {
   const normalizedPhoneNumber =
     typeof phone_number === "string" ? phone_number.trim() : undefined;
 
-  const hasProfileFieldUpdate =
-    normalizedName !== undefined ||
-    normalizedEmail !== undefined ||
-    normalizedPhoneCode !== undefined ||
-    normalizedPhoneNumber !== undefined;
-
-  if (!hasProfileFieldUpdate && !req.file) {
-    throw new ApiError(
-      400,
-      "At least one profile field or avatar must be provided",
-    );
-  }
-
   const existingUser = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       id: true,
+      email: true,
       avatar_public_id: true,
     },
   });
@@ -76,15 +64,23 @@ const updateUserProfile = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "User not found");
   }
 
-  if (normalizedEmail !== undefined) {
-    const emailOwner = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: { id: true },
-    });
+  if (
+    normalizedEmail !== undefined &&
+    normalizedEmail.toLowerCase() !== existingUser.email.toLowerCase()
+  ) {
+    throw new ApiError(400, "Email cannot be changed for this account");
+  }
 
-    if (emailOwner && emailOwner.id !== userId) {
-      throw new ApiError(400, "Email is already in use");
-    }
+  const hasProfileFieldUpdate =
+    normalizedName !== undefined ||
+    normalizedPhoneCode !== undefined ||
+    normalizedPhoneNumber !== undefined;
+
+  if (!hasProfileFieldUpdate && !req.file) {
+    throw new ApiError(
+      400,
+      "At least one profile field or avatar must be provided",
+    );
   }
 
   if (normalizedPhoneNumber !== undefined) {
@@ -115,17 +111,15 @@ const updateUserProfile = asyncHandler(async (req: Request, res: Response) => {
 
   const updateData: {
     name?: string;
-    email?: string;
-    pnone_code?: string;
+    phone_code?: string;
     phone_number?: string;
     avatar_url?: string;
     avatar_public_id?: string;
   } = {};
 
   if (normalizedName !== undefined) updateData.name = normalizedName;
-  if (normalizedEmail !== undefined) updateData.email = normalizedEmail;
   if (normalizedPhoneCode !== undefined)
-    updateData.pnone_code = normalizedPhoneCode;
+    updateData.phone_code = normalizedPhoneCode;
   if (normalizedPhoneNumber !== undefined)
     updateData.phone_number = normalizedPhoneNumber;
 
@@ -141,7 +135,7 @@ const updateUserProfile = asyncHandler(async (req: Request, res: Response) => {
       id: true,
       name: true,
       email: true,
-      pnone_code: true,
+      phone_code: true,
       phone_number: true,
       avatar_url: true,
       is_active: true,
@@ -158,7 +152,7 @@ const updateUserProfile = asyncHandler(async (req: Request, res: Response) => {
       id: updatedUser.id,
       username: updatedUser.name,
       email: updatedUser.email,
-      phone_code: updatedUser.pnone_code,
+      phone_code: updatedUser.phone_code,
       phone_number: updatedUser.phone_number,
       avatar_url: updatedUser.avatar_url,
       role: updatedUser.role?.name,

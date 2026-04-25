@@ -927,32 +927,21 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
 
   const couponAudienceFilter: Prisma.CouponWhereInput = userId
     ? {
-        OR: [{ is_global: true }, { users: { some: { id: userId } } }],
+        OR: [{ users: { none: {} } }, { users: { some: { id: userId } } }],
       }
     : {
-        is_global: true,
+        users: { none: {} },
       };
 
-  const couponUsageFilter: Prisma.CouponWhereInput = userId
-    ? {
-        usages: {
-          none: {
-            user_id: userId,
-          },
-        },
-      }
-    : {};
-
-  const coupons = await prisma.coupon.findMany({
+  const candidateCoupons = await prisma.coupon.findMany({
     where: {
       is_active: true,
       start_date: { lte: new Date() },
       end_date: { gte: new Date() },
-      AND: [
-        couponAudienceFilter,
-        productCouponApplicability,
-        couponUsageFilter,
-      ],
+      AND: [couponAudienceFilter, productCouponApplicability],
+    },
+    orderBy: {
+      updated_at: "desc",
     },
     select: {
       code: true,
@@ -964,8 +953,52 @@ const getProductBySlug = asyncHandler(async (req: Request, res: Response) => {
       min_purchase: true,
       start_date: true,
       end_date: true,
+      max_uses: true,
+      max_uses_per_user: true,
     },
   });
+
+  const couponIds = candidateCoupons.map((coupon) => coupon.id);
+
+  const [globalUsageRows, userUsageRows] = await Promise.all([
+    couponIds.length
+      ? prisma.couponUsage.groupBy({
+          by: ["coupon_id"],
+          where: { coupon_id: { in: couponIds } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    userId && couponIds.length
+      ? prisma.couponUsage.groupBy({
+          by: ["coupon_id"],
+          where: { coupon_id: { in: couponIds }, user_id: userId },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const globalUsageMap = new Map(
+    globalUsageRows.map((row) => [row.coupon_id, row._count._all]),
+  );
+  const userUsageMap = new Map(
+    userUsageRows.map((row) => [row.coupon_id, row._count._all]),
+  );
+
+  const coupons = candidateCoupons
+    .filter((coupon) => {
+      const totalUsedCount = globalUsageMap.get(coupon.id) ?? 0;
+      const userUsedCount = userUsageMap.get(coupon.id) ?? 0;
+
+      const isUnderGlobalUsageLimit =
+        coupon.max_uses == null || totalUsedCount < coupon.max_uses;
+      const isUnderUserUsageLimit =
+        coupon.max_uses_per_user == null ||
+        !userId ||
+        userUsedCount < coupon.max_uses_per_user;
+
+      return isUnderGlobalUsageLimit && isUnderUserUsageLimit;
+    })
+    .map(({ max_uses, max_uses_per_user, ...coupon }) => coupon);
 
   const ratingAggregate = await prisma.review.aggregate({
     where: {

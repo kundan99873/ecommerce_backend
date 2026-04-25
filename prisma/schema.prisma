@@ -10,7 +10,7 @@ model User {
   id        Int     @id @default(autoincrement())
   name      String
   email     String  @unique
-  pnone_code   String?
+  phone_code   String?
   phone_number String? @unique
   password  String?
   avatar_url        String? 

@@ -1,34 +1,34 @@
 export interface CouponInput {
-    code: string;
-    description?: string;
-    discount_type: "PERCENTAGE" | "FIXED";
-    discount_value: number;
-    start_date: string;
-    end_date: string;
-    min_purchase?: number | null;
-    max_uses?: number | null;
-    is_active?: boolean;
-    is_global?: boolean;
-    product_ids?: number[]; 
-    user_ids?: number[];
+  code: string;
+  description?: string;
+  discount_type: "PERCENTAGE" | "FIXED";
+  discount_value: number;
+  start_date: string;
+  end_date: string;
+  min_purchase?: number | null;
+  max_uses?: number | null;
+  is_active?: boolean;
+  is_global?: boolean;
+  product_ids?: number[];
+  user_ids?: number[];
 }
 
 export interface CouponUpdateInput {
-    code?: string;
-    description?: string;
-    discount_type?: "PERCENTAGE" | "FIXED";
-    discount_value?: number;
-    start_date?: string;
-    end_date?: string;
-    min_purchase?: number | null;
-    max_uses?: number | null;
-    is_active?: boolean;
-    is_global?: boolean;
+  code?: string;
+  description?: string;
+  discount_type?: "PERCENTAGE" | "FIXED";
+  discount_value?: number;
+  start_date?: string;
+  end_date?: string;
+  min_purchase?: number | null;
+  max_uses?: number | null;
+  is_active?: boolean;
+  is_global?: boolean;
 }
 
 export interface CouponQuery {
-    page?: number;
-    limit?: number;
-    search?: string;
+  page?: number;
+  limit?: number;
+  search?: string;
+  is_active?: string;
 }
-
